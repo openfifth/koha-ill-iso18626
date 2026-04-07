@@ -1,0 +1,5 @@
+[% USE KohaDates %]
+[% PROCESS 'ill-request-log.inc' %]
+[% WRAPPER ill_request_log action_label = 'ReprintsDesk request order update succeeded ' %]
+Metadata: &quot;[% log.info.response.replace('\n', ', ') | html %]&quot;
+[% END %]

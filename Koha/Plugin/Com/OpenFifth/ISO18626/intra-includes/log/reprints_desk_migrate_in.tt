@@ -1,0 +1,5 @@
+[% USE KohaDates %]
+[% PROCESS 'ill-request-log.inc' %]
+[% WRAPPER ill_request_log action_label = 'Switched provider ' %]
+from &quot;[% log.info.migrated_from %]&quot; to &quot;[% log.info.migrated_to %]&quot;
+[% END %]

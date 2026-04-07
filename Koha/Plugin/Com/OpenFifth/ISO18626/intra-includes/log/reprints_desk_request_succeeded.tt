@@ -1,0 +1,4 @@
+[% USE KohaDates %]
+[% PROCESS 'ill-request-log.inc' %]
+[% WRAPPER ill_request_log action_label = 'ReprintsDesk request succeeded' %]
+[% END %]

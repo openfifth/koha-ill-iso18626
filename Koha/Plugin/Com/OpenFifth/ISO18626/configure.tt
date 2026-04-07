@@ -1,0 +1,81 @@
+[% USE raw %]
+[% INCLUDE 'doc-head-open.inc' %]
+<title>Koha: ISO18626 Configuration</title>
+[% INCLUDE 'doc-head-close.inc' %]
+<style>
+    input:not([type="submit"]):not([type="search"]):not([type="button"]):not(
+            [type="checkbox"]
+        ):not([type="radio"]){
+        border-color: rgba(60, 60, 60, 0.26);
+        border-width: 1px;
+        border-radius: 4px;
+        min-width: 30%;
+    }
+</style>
+</head>
+<body>
+[% WRAPPER 'header.inc' %]
+    [% INCLUDE 'cat-search.inc' %]
+[% END %]
+
+[% WRAPPER 'sub-header.inc' %]
+    [% WRAPPER breadcrumbs %]
+        [% WRAPPER breadcrumb_item %]
+            <a href="/cgi-bin/koha/plugins/plugins-home.pl">Plugins</a>
+        [% END %]
+        [% WRAPPER breadcrumb_item %]
+            <a href="/cgi-bin/koha/plugins/run.pl?class=Koha%3A%3APlugin%3A%3ACom%3A%3APTFSEurope%3A%3AISO18626&amp;method=configure">ISO18626</a>
+        [% END %]
+        [% WRAPPER breadcrumb_item bc_active = 1 %]
+            <a href="#">Configuration</a>
+        [% END %]
+    [% END #/ WRAPPER breadcrumbs %]
+[% END #/ WRAPPER sub-header.inc %]
+
+<div class="main container-fluid">
+    <div class="row">
+        <div class="col-md-10 offset-md-2 order-sm-1">
+            <h1>ISO18626 configuration</h1>
+            <div class="alert alert-info">Please configure the connection details for the supplying agency.</div>
+            
+            <form id="iso18626_configure" method="get">
+                <fieldset class="rows">
+                    <input type="hidden" name="class" value="[% CLASS %]"/>
+                    <input type="hidden" name="method" value="[% METHOD %]"/>
+                    
+                    <legend>Connection details</legend>
+                    <div class="row">
+                        <ol>
+                            <li>
+                                <div id="iso18626_url">
+                                    <label for="iso18626_url_input">Supplying agency URL: </label>
+                                    <input id="iso18626_url_input" class="required_input" placeholder="https://api.example.org/iso18626" type="text" name="url" value="[% config.url | html %]">
+                                    <a href="#" data-bs-toggle="tooltip" title="The endpoint URL for the supplying agency's ISO18626 service."><i class="fa-solid fa-circle-question"></i></a>
+                                </div>
+                            </li>
+                            <li>
+                                <div id="iso18626_clientid">
+                                    <label for="iso18626_clientid_input">Client ID: </label>
+                                    <input id="iso18626_clientid_input" class="required_input" placeholder="Enter Client ID" type="text" name="client_id" value="[% config.client_id | html %]">
+                                    <a href="#" data-bs-toggle="tooltip" title="The Client ID used for authentication."><i class="fa-solid fa-circle-question"></i></a>
+                                </div>
+                            </li>
+                            <li>
+                                <div id="iso18626_clientsecret">
+                                    <label for="iso18626_clientsecret_input">Client secret: </label>
+                                    <input id="iso18626_clientsecret_input" class="required_input" placeholder="Enter Client Secret" type="password" name="client_secret" value="[% config.client_secret | html %]">
+                                    <a href="#" data-bs-toggle="tooltip" title="The Client Secret used for authentication."><i class="fa-solid fa-circle-question"></i></a>
+                                </div>
+                            </li>
+                        </ol>
+                    </div>
+
+                    <input type="hidden" name="save" value="1" />
+                    <input id="submit_button" class="btn btn-primary" type="submit" value="Save configuration" />
+                </fieldset>
+            </form>
+        </div>
+    </div>
+</div>
+
+[% INCLUDE 'intranet-bottom.inc' %]
