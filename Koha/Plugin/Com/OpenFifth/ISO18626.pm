@@ -1502,10 +1502,11 @@ Insert a row into the plugin messages table.
 =cut
 
 sub _add_message {
-    my ( $self, $illrequest_id, $type, $content ) = @_;
+    my ( $self, $illrequest_id, $type, $content, $timestamp ) = @_;
     my $table = $self->get_qualified_table_name('messages');
+    my $ts    = $timestamp // 'NOW()';
     C4::Context->dbh->do(
-        "INSERT INTO `$table` (illrequest_id, type, content, timestamp) VALUES (?, ?, ?, NOW())",
+        "INSERT INTO `$table` (illrequest_id, type, content, timestamp) VALUES (?, ?, ?, $ts)",
         undef, $illrequest_id, $type, $content,
     );
 }

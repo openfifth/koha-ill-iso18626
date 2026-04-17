@@ -161,6 +161,13 @@ sub receive_supplying_agency_message {
         $confirmation->{supplyingAgencyMessageConfirmation}{reasonForMessage} = $reason;
     }
 
+    $plugin->_add_message(
+        $ill_request->illrequest_id,
+        'supplyingAgencyMessageConfirmation',
+        encode_json($confirmation),
+        'NOW() + INTERVAL 1 SECOND'
+    );
+
     $c->res->headers->add( 'Content-Type', 'application/xml' );
     return $c->render( status => 200, openapi => $confirmation );
 }
