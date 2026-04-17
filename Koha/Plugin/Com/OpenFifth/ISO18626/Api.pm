@@ -17,6 +17,7 @@ use MIME::Base64 qw( decode_base64 encode_base64 );
 use Encode qw( decode_utf8);
 use URI::Escape  qw ( uri_unescape );
 
+use C4::Context;
 use Koha::DateUtils qw( dt_from_string );
 use Koha::ILL::Requests;
 use Koha::Logger;
@@ -162,6 +163,41 @@ sub receive_supplying_agency_message {
 
     $c->res->headers->add( 'Content-Type', 'application/xml' );
     return $c->render( status => 200, openapi => $confirmation );
+}
+
+=head3 get_messages
+
+Returns the ISO18626 messages stored in the plugin table for a given ILL request.
+
+=cut
+
+sub get_messages {
+    my $c = shift->openapi->valid_input or return;
+
+    my $illrequest_id = $c->validation->param('illrequest_id');
+
+    my $ill_request = Koha::ILL::Requests->find($illrequest_id);
+    unless ($ill_request) {
+        return $c->render(
+            status  => 404,
+            openapi => { error => "ILL request $illrequest_id not found" }
+        );
+    }
+
+    my $plugin = Koha::Plugin::Com::OpenFifth::ISO18626->new();
+    my $table  = $plugin->get_qualified_table_name('messages');
+    my $dbh    = C4::Context->dbh;
+
+    my $messages = $dbh->selectall_arrayref(
+        "SELECT id, type, content, timestamp FROM `$table` WHERE illrequest_id = ? ORDER BY timestamp DESC",
+        { Slice => {} },
+        $illrequest_id
+    );
+
+    return $c->render(
+        status  => 200,
+        openapi => $messages
+    );
 }
 
 =head3 _add_libraries_info

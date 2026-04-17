@@ -1,87 +1,105 @@
 [% BLOCK backend_jsinclude %]
 <style>
-    #reprints_desk_status {
-        padding-top: 20px;
+    #iso18626-messages {
+        margin-top: 1.5rem;
+    }
+    #iso18626-messages h4 {
+        margin-bottom: 0.75rem;
+    }
+    #iso18626-messages-table th,
+    #iso18626-messages-table td {
+        padding: 0.4rem 0.6rem;
+        vertical-align: top;
+    }
+    .iso18626-toggle {
+        background: none;
+        border: none;
+        color: #0070a8;
+        cursor: pointer;
+        padding: 0;
+        font-size: 0.9em;
+        text-decoration: underline;
+    }
+    .iso18626-payload {
         display: none;
-    }
-    .reprints_desk_transaction {
-        display: flex;
-    }
-    .reprints_desk_transaction > * {
-        width: 25%;
-    }
-    #transactions_header {
-        font-weight: 700;
-        margin-bottom: 0.5rem;
-    }
-    #reprints_desk_header {
-        margin-bottom: 1rem;
+        margin-top: 0.4rem;
+        white-space: pre-wrap;
+        font-family: monospace;
+        font-size: 0.85em;
+        background: #f5f5f5;
+        padding: 0.5rem;
+        border-radius: 3px;
+        max-height: 20rem;
+        overflow-y: auto;
     }
 </style>
 <script>
-    document.addEventListener('DOMContentLoaded', function(){
+document.addEventListener('DOMContentLoaded', function () {
+    var illrequest_id = new URLSearchParams(window.location.search).get('illrequest_id');
+    if (!illrequest_id) return;
 
-        // Hide "Mark request READY" button if an Order ID exists
-        if( $('li.orderid').length !== 0 ){
-            $('#ill-toolbar-btn-ready').hide();
-        }
+    var panel = document.querySelector('.page-section');
+    if (!panel) return;
 
-        var field_map = [% whole.field_map_json %];
+    var container = document.createElement('div');
+    container.id = 'iso18626-messages';
+    container.style.display = 'none';
+    panel.appendChild(container);
 
-        var reprintsDeskIdContainer = $(".requestmeta-ReprintsDesk_identifier");
-        if (!reprintsDeskIdContainer) return;
+    function escHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
 
-        // We clone so we can extract the ReprintsDeskID without affecting the displayed markup
-        var containerClone = reprintsDeskIdContainer.clone();
+    fetch('/api/v1/contrib/iso18626/ill_requests/' + illrequest_id + '/messages', {
+        headers: { 'Accept': 'application/json' }
+    })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (messages) {
+        if (!messages || messages.length === 0) return;
 
-        $('.ill-view-panel .panel-body').first().append('<div id="reprints_desk_status" class="rows"></div>');
+        var rows = messages.map(function (msg, i) {
+            var dt = new Date(msg.timestamp.replace(' ', 'T'));
+            var formatted = isNaN(dt.getTime())
+                ? escHtml(msg.timestamp)
+                : dt.toLocaleDateString() + ' ' + dt.toLocaleTimeString();
+            var toggleId = 'iso18626-payload-' + i;
+            var prettyContent;
+            try {
+                prettyContent = JSON.stringify(JSON.parse(msg.content), null, 2);
+            } catch (e) {
+                prettyContent = msg.content;
+            }
+            return '<tr>'
+                + '<td>' + formatted + '</td>'
+                + '<td>' + escHtml(msg.type) + '</td>'
+                + '<td>'
+                +   '<button class="iso18626-toggle" data-target="' + toggleId + '">Show payload</button>'
+                +   '<pre id="' + toggleId + '" class="iso18626-payload">' + escHtml(prettyContent) + '</pre>'
+                + '</td>'
+                + '</tr>';
+        }).join('');
 
-        containerClone.find('span.label').remove();
-        var reprintsDeskId = containerClone.text().replace(/ |\n/g,'');
+        container.innerHTML =
+            '<h4>ISO18626 messages</h4>'
+            + '<table id="iso18626-messages-table" class="table table-bordered table-striped">'
+            + '<thead><tr><th>Timestamp</th><th>Type</th><th>Payload</th></tr></thead>'
+            + '<tbody>' + rows + '</tbody>'
+            + '</table>';
+        container.style.display = 'block';
 
-        if (!reprintsDeskId || reprintsDeskId.length === 0) return;
-
-        $.post({
-            url: '/api/v1/contrib/reprintsdesk/Order_GetOrderInfo',
-            data: JSON.stringify({ requestId: reprintsDeskId }),
-            contentType: 'application/json'
-        })
-            .done(function(resp, status) {
-                var body = resp.result;
-                if (
-                    !body ||
-                    !body.IsSuccessful ||
-                    !body.HistoryTransactions ||
-                    !body.HistoryTransactions.TranHistory ||
-                    body.HistoryTransactions.TranHistory.length === 0
-                ) return;
-
-                var transactionsHeader = '<div id="transactions_header" class="reprints_desk_transaction">' +
-                    '<div class="date">' + _('Date') + '</div>' +
-                    '<div class="branch">' + _('Branch name') + '</div>' +
-                    '<div class="code">' + _('ReprintsDesk code') + '</div>' +
-                    '<div class="state">' + _('ReprintsDesk state') + '</div>' +
-                    '</div>';
-
-                var transactions = [];
-                body.HistoryTransactions.TranHistory.forEach(function(tran) {
-                    var tranDate = new Date(tran.TransactionDate);
-                    var tranMarkup = '<div class="reprints_desk_transaction">' +
-                        '<div class="date">' + tranDate.toLocaleDateString() + ' ' + tranDate.toLocaleTimeString() + '</div>' +
-                        '<div class="branch">' + tran.BranchName + '</div>' +
-                        '<div class="code">' + tran.ReprintsDeskCode + '</div>' +
-                        '<div class="state">' + tran.StateType + '</div>' +
-                        '</div>';
-                    transactions.push(tranMarkup);
-                });
-
-                $('#reprints_desk_status').append(
-                    '<h1 id="reprints_desk_header">' + _('ReprintsDesk history') + '</h1>' +
-                    transactionsHeader + 
-                    transactions.join('')
-                ).show();
-            });
-
+        container.addEventListener('click', function (e) {
+            var btn = e.target.closest('.iso18626-toggle');
+            if (!btn) return;
+            var pre = document.getElementById(btn.dataset.target);
+            if (!pre) return;
+            var visible = pre.style.display === 'block';
+            pre.style.display = visible ? 'none' : 'block';
+            btn.textContent = visible ? 'Show payload' : 'Hide payload';
+        });
     });
+});
 </script>
 [% END %]

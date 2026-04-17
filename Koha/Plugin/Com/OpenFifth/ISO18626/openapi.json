@@ -29,6 +29,37 @@
             }
         }
     },
+    "/ill_requests/{illrequest_id}/messages": {
+        "get": {
+            "x-mojo-to": "Com::OpenFifth::ISO18626::Api#get_messages",
+            "operationId": "ISO18626GetMessages",
+            "tags": ["ill", "iso18626"],
+            "produces": ["application/json"],
+            "parameters": [
+                {
+                    "name": "illrequest_id",
+                    "in": "path",
+                    "description": "The ILL request ID",
+                    "required": true,
+                    "type": "integer"
+                }
+            ],
+            "responses": {
+                "200": {
+                    "description": "List of ISO18626 messages for this ILL request",
+                    "schema": {
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        }
+                    }
+                },
+                "404": {
+                    "description": "ILL request not found"
+                }
+            }
+        }
+    },
     "/supplying_agency_message": {
         "post": {
             "x-mojo-to": "Com::OpenFifth::ISO18626::Api#receive_supplying_agency_message",
