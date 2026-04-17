@@ -144,6 +144,11 @@ sub receive_supplying_agency_message {
     my $plugin = Koha::Plugin::Com::OpenFifth::ISO18626->new();
     $plugin->_add_message( $ill_request->illrequest_id, 'supplyingAgencyMessage', encode_json($msg) );
 
+    # Sync the Koha ILL request status from the incoming statusInfo
+    if ( my $new_status = $msg->{statusInfo}{status} ) {
+        $ill_request->status($new_status)->store;
+    }
+
     my $now                = dt_from_string()->strftime('%Y-%m-%dT%H:%M:%S');
     my $timestamp_received = $msg->{header}{timestamp} // $now;
 
