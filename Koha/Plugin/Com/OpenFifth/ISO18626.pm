@@ -650,6 +650,30 @@ sub mark_received {
     };
 }
 
+=head3 ship_return
+
+    Send a ShippedReturn requestingAgencyMessage to the supplier and set local status to ShippedReturn.
+    ShippedReturn is a local-only status indicating the item has been dispatched back to the supplier.
+
+=cut
+
+sub ship_return {
+    my ( $self, $params ) = @_;
+
+    my $request = $params->{request};
+    $self->_send_requesting_agency_message( $request, 'ShippedReturn' );
+    $request->status('ShippedReturn')->store;
+
+    return {
+        error   => 0,
+        status  => '',
+        message => '',
+        method  => 'ship_return',
+        stage   => 'commit',
+        next    => 'illview',
+    };
+}
+
 =head3 _send_requesting_agency_message
 
     $self->_send_requesting_agency_message( $request, $action );
@@ -1380,8 +1404,20 @@ sub status_graph {
             name           => 'Item received',
             ui_method_name => 'Mark as received',
             method         => 'mark_received',
-            next_actions   => [ 'LoanCompleted', 'CompletedWithoutReturn' ],
+            next_actions   => [ 'ShippedReturn', 'LoanCompleted', 'CompletedWithoutReturn' ],
             ui_method_icon => 'fa-box-open',
+        },
+
+        # Local-only status (not ISO18626): set when the requesting library
+        # ships the item back to the supplier.
+        ShippedReturn => {
+            prev_actions   => ['ItemReceived'],
+            id             => 'ShippedReturn',
+            name           => 'Return shipped',
+            ui_method_name => 'Ship return',
+            method         => 'ship_return',
+            next_actions   => ['LoanCompleted'],
+            ui_method_icon => 'fa-truck',
         },
         CopyCompleted => {
             prev_actions   => [ 'RequestReceived', 'WillSupply', 'ExpectToSupply', 'Loaned' ],
@@ -1393,7 +1429,7 @@ sub status_graph {
             ui_method_icon => 0,
         },
         LoanCompleted => {
-            prev_actions   => [ 'Loaned', 'ItemReceived' ],
+            prev_actions   => [ 'Loaned', 'ItemReceived', 'ShippedReturn' ],
             id             => 'LoanCompleted',
             name           => 'Loan completed',
             ui_method_name => 0,
