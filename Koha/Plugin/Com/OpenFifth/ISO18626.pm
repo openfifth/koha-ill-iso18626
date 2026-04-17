@@ -34,8 +34,10 @@ use JSON           qw( encode_json decode_json to_json from_json );
 use File::Basename qw( dirname );
 use MIME::Base64 qw( decode_base64 encode_base64 );
 use C4::Installer;
+use C4::Context;
 use URI::Escape;
 
+use Koha::REST::V1;
 use Koha::Plugin::Com::OpenFifth::ISO18626::Lib::API;
 use Koha::Libraries;
 use Koha::Patrons;
@@ -206,7 +208,26 @@ sub api_namespace {
     return 'iso18626';
 }
 
-sub install() {
+sub install {
+    my ( $self, $args ) = @_;
+
+    my $table = $self->get_qualified_table_name('messages');
+    my $dbh   = C4::Context->dbh;
+
+    $dbh->do("
+        CREATE TABLE IF NOT EXISTS `$table` (
+            `id`            INT(11) NOT NULL AUTO_INCREMENT,
+            `illrequest_id` BIGINT(20) UNSIGNED NOT NULL,
+            `type`          VARCHAR(64) NOT NULL,
+            `content`       LONGTEXT NOT NULL,
+            `timestamp`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            FOREIGN KEY (`illrequest_id`)
+                REFERENCES `illrequests` (`illrequest_id`)
+                ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    ") or return 0;
+
     return 1;
 }
 
@@ -219,7 +240,14 @@ sub upgrade {
     return 1;
 }
 
-sub uninstall() {
+sub uninstall {
+    my ( $self, $args ) = @_;
+
+    my $table = $self->get_qualified_table_name('messages');
+    my $dbh   = C4::Context->dbh;
+
+    $dbh->do("DROP TABLE IF EXISTS `$table`") or return 0;
+
     return 1;
 }
 
@@ -1008,36 +1036,59 @@ sub create_request {
 
     # --- AUTHENTICATION SUB-SECTION ---
     my $auth = add_node($dom, $header, 'requestingAgencyAuthentication');
-    add_node($dom, $auth, 'accountId',    'asd'); #TODO: Grab from config
-    add_node( $dom, $auth, 'securityCode', 'asds' );    #TODO: Grab from config
+    add_node( $dom, $auth, 'accountId',    $self->{config}->{account_id}    // '' );
+    add_node( $dom, $auth, 'securityCode', $self->{config}->{security_code} // '' );
 
-use Data::Dumper; $Data::Dumper::Maxdepth = 2;
-warn Dumper('##### 1 #######################################################line: ' . __LINE__);
-warn Dumper($dom->toString(1));
-warn Dumper('##### end1 #######################################################');
+    # 3. Prepare and send the request
+    my $endpoint = $self->{config}->{url};
+    unless ($endpoint) {
+        my $error = 'ISO18626: No supplying agency endpoint configured.';
+        warn $error;
+        $submission->notesstaff($error)->status('ERROR')->store;
+        return { success => 0, message => $error };
+    }
 
-    # 3. Prepare the Request
-    my $url = 'http://localhost:8081/api/v1/public/ill/iso18626';
+    my $spec_file = dirname( $INC{'Koha/REST/V1.pm'} ) . '/../../api/v1/swagger/swagger_bundle.json';
+    $spec_file    = dirname( $INC{'Koha/REST/V1.pm'} ) . '/../../api/v1/swagger/swagger.yaml'
+        unless -f $spec_file;
+
+    my $request_xml = $dom->toString(1);
+    $self->_add_message(
+        $submission->illrequest_id, 'request',
+        encode_json( Koha::REST::V1::parse_xml( $dom->documentElement, $spec_file ) )
+    );
+
     my $ua  = LWP::UserAgent->new;
-
-    # Handle the -u koha:koha (Basic Auth)
-    my $req = HTTP::Request->new( POST => $url );
-    # $req->authorization_basic( 'koha', 'koha' );
+    my $req = HTTP::Request->new( POST => $endpoint );
     $req->header( 'Content-Type' => 'application/xml' );
-    $req->content( $dom->toString(1) );
+    $req->content($request_xml);
 
     my $response = $ua->request($req);
 
-use Data::Dumper; $Data::Dumper::Maxdepth = 2;
-warn Dumper('##### 1 #######################################################line: ' . __LINE__);
-warn Dumper($response);
-warn Dumper('##### end1 #######################################################');
+    if ( $response->is_success ) {
+        my $confirmation_xml = $response->decoded_content;
+        if ($confirmation_xml) {
+            my $doc = eval { XML::LibXML->new()->parse_string($confirmation_xml) };
+            $self->_add_message(
+                $submission->illrequest_id, 'requestConfirmation',
+                $doc
+                    ? encode_json( Koha::REST::V1::parse_xml( $doc->documentElement, $spec_file ) )
+                    : $confirmation_xml
+            );
+        }
+        $submission->status('RequestReceived')->store;
+        return { success => 1, message => '' };
+    }
 
-    # Return the message
-    return {
-        success => 0,
-        message => 'to be implemented'
-    };
+    my $error = sprintf(
+        'ISO18626: Failed to send request to %s. Status: %s. Body: %s',
+        $endpoint,
+        $response->status_line,
+        $response->decoded_content || 'No content'
+    );
+    warn $error;
+    $submission->notesstaff($error)->status('ERROR')->store;
+    return { success => 0, message => $error };
 
 }
 
@@ -1440,6 +1491,23 @@ sub add_request {
     $request->after_created;
 
     return $request;
+}
+
+=head3 _add_message
+
+    $self->_add_message( $illrequest_id, $type, $content );
+
+Insert a row into the plugin messages table.
+
+=cut
+
+sub _add_message {
+    my ( $self, $illrequest_id, $type, $content ) = @_;
+    my $table = $self->get_qualified_table_name('messages');
+    C4::Context->dbh->do(
+        "INSERT INTO `$table` (illrequest_id, type, content, timestamp) VALUES (?, ?, ?, NOW())",
+        undef, $illrequest_id, $type, $content,
+    );
 }
 
 =head3 _logger
