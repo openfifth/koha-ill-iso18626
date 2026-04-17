@@ -17,6 +17,8 @@ use MIME::Base64 qw( decode_base64 encode_base64 );
 use Encode qw( decode_utf8);
 use URI::Escape  qw ( uri_unescape );
 
+use Koha::DateUtils qw( dt_from_string );
+use Koha::ILL::Requests;
 use Koha::Logger;
 use Koha::Patrons;
 use HTTP::Request::Common;
@@ -93,6 +95,74 @@ sub Backend_Availability {
 
 }
 
+
+=head3 receive_supplying_agency_message
+
+Receives a supplyingAgencyMessage from a supplying Koha instance (posted as XML,
+converted to JSON by the core XML middleware), stores it, and responds with a
+supplyingAgencyMessageConfirmation.
+
+=cut
+
+sub receive_supplying_agency_message {
+    my $c = shift->openapi->valid_input or return;
+
+    my $body = $c->req->body;
+    my $json = eval { decode_json($body) };
+    if ($@) {
+        return $c->render(
+            status  => 400,
+            openapi => { error => 'Invalid request body' }
+        );
+    }
+
+    my $msg = $json->{supplyingAgencyMessage};
+    unless ($msg) {
+        return $c->render(
+            status  => 400,
+            openapi => { error => 'Missing supplyingAgencyMessage' }
+        );
+    }
+
+    my $requesting_agency_request_id = $msg->{header}{requestingAgencyRequestId};
+    unless ($requesting_agency_request_id) {
+        return $c->render(
+            status  => 400,
+            openapi => { error => 'Missing requestingAgencyRequestId in message header' }
+        );
+    }
+
+    my $ill_request = Koha::ILL::Requests->find($requesting_agency_request_id);
+    unless ($ill_request) {
+        return $c->render(
+            status  => 404,
+            openapi => { error => "ILL request $requesting_agency_request_id not found" }
+        );
+    }
+
+    my $plugin = Koha::Plugin::Com::OpenFifth::ISO18626->new();
+    $plugin->_add_message( $ill_request->illrequest_id, 'supplyingAgencyMessage', encode_json($msg) );
+
+    my $now                = dt_from_string()->strftime('%Y-%m-%dT%H:%M:%S');
+    my $timestamp_received = $msg->{header}{timestamp} // $now;
+
+    my $confirmation = {
+        supplyingAgencyMessageConfirmation => {
+            confirmationHeader => {
+                timestamp         => $now,
+                timestampReceived => $timestamp_received,
+                messageStatus     => 'OK',
+            },
+        },
+    };
+
+    if ( my $reason = $msg->{messageInfo}{reasonForMessage} ) {
+        $confirmation->{supplyingAgencyMessageConfirmation}{reasonForMessage} = $reason;
+    }
+
+    $c->res->headers->add( 'Content-Type', 'application/xml' );
+    return $c->render( status => 200, openapi => $confirmation );
+}
 
 =head3 _add_libraries_info
 
