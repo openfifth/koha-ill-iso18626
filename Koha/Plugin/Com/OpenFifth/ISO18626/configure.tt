@@ -49,22 +49,22 @@
                             <li>
                                 <div id="iso18626_url">
                                     <label for="iso18626_url_input">Supplying agency URL: </label>
-                                    <input id="iso18626_url_input" class="required_input" placeholder="https://api.example.org/iso18626" type="text" name="url" value="[% config.url | html %]">
+                                    <input id="iso18626_url_input" class="required_input" placeholder="http://localhost:8081/api/v1/public/ill/iso18626" type="text" name="url" value="[% config.url | html %]">
                                     <a href="#" data-bs-toggle="tooltip" title="The endpoint URL for the supplying agency's ISO18626 service."><i class="fa-solid fa-circle-question"></i></a>
                                 </div>
                             </li>
                             <li>
-                                <div id="iso18626_clientid">
-                                    <label for="iso18626_clientid_input">Client ID: </label>
-                                    <input id="iso18626_clientid_input" class="required_input" placeholder="Enter Client ID" type="text" name="client_id" value="[% config.client_id | html %]">
-                                    <a href="#" data-bs-toggle="tooltip" title="The Client ID used for authentication."><i class="fa-solid fa-circle-question"></i></a>
+                                <div id="iso18626_accountid">
+                                    <label for="iso18626_accountid_input">Account ID: </label>
+                                    <input id="iso18626_accountid_input" class="required_input" placeholder="Enter Account ID" type="text" name="account_id" value="[% config.account_id | html %]">
+                                    <a href="#" data-bs-toggle="tooltip" title="The accountId sent in the ISO18626 request header for authentication."><i class="fa-solid fa-circle-question"></i></a>
                                 </div>
                             </li>
                             <li>
-                                <div id="iso18626_clientsecret">
-                                    <label for="iso18626_clientsecret_input">Client secret: </label>
-                                    <input id="iso18626_clientsecret_input" class="required_input" placeholder="Enter Client Secret" type="password" name="client_secret" value="[% config.client_secret | html %]">
-                                    <a href="#" data-bs-toggle="tooltip" title="The Client Secret used for authentication."><i class="fa-solid fa-circle-question"></i></a>
+                                <div id="iso18626_securitycode">
+                                    <label for="iso18626_securitycode_input">Security code: </label>
+                                    <input id="iso18626_securitycode_input" class="required_input" placeholder="Enter Security Code" type="password" name="security_code" value="[% config.security_code | html %]">
+                                    <a href="#" data-bs-toggle="tooltip" title="The securityCode sent in the ISO18626 request header for authentication."><i class="fa-solid fa-circle-question"></i></a>
                                 </div>
                             </li>
                         </ol>
