@@ -603,12 +603,17 @@ sub illview {
 
 =head3 cancel
 
-    Mark a request as cancelled
+    Send a Cancel requestingAgencyMessage to the supplier and set local status to CANCREQ.
+    The request remains in CANCREQ until the supplier confirms via a supplyingAgencyMessage.
 
 =cut
+
 sub cancel {
-    my ($self, $params) = @_;
-    $params->{request}->status("CANCREQ")->store;
+    my ( $self, $params ) = @_;
+
+    my $request = $params->{request};
+    $self->_send_requesting_agency_message( $request, 'Cancel' );
+    $request->status('CANCREQ')->store;
 
     return {
         error   => 0,
@@ -618,6 +623,111 @@ sub cancel {
         stage   => 'commit',
         next    => 'illview',
     };
+}
+
+=head3 mark_received
+
+    Send a Received requestingAgencyMessage to the supplier and set local status to ItemReceived.
+    ItemReceived is a local-only status — it has no ISO18626 equivalent but signals that
+    the requesting library has taken custody of the item.
+
+=cut
+
+sub mark_received {
+    my ( $self, $params ) = @_;
+
+    my $request = $params->{request};
+    $self->_send_requesting_agency_message( $request, 'Received' );
+    $request->status('ItemReceived')->store;
+
+    return {
+        error   => 0,
+        status  => '',
+        message => '',
+        method  => 'mark_received',
+        stage   => 'commit',
+        next    => 'illview',
+    };
+}
+
+=head3 _send_requesting_agency_message
+
+    $self->_send_requesting_agency_message( $request, $action );
+
+Sends a requestingAgencyMessage with the given C<$action> (e.g. 'Cancel', 'Received',
+'StatusRequest') to the supplying agency endpoint configured in the plugin settings.
+Stores both the outgoing message and the incoming confirmation in the plugin messages table.
+
+=cut
+
+sub _send_requesting_agency_message {
+    my ( $self, $request, $action ) = @_;
+
+    my $endpoint = $self->{config}->{url};
+    unless ($endpoint) {
+        warn 'ISO18626: Cannot send requestingAgencyMessage — no supplying agency endpoint configured.';
+        return 0;
+    }
+
+    my $timestamp = strftime( '%Y-%m-%dT%H:%M:%SZ', gmtime );
+
+    my $dom  = XML::LibXML::Document->new( '1.0', 'UTF-8' );
+    my $root = add_node( $dom, $dom, 'requestingAgencyMessage' );
+
+    my $header = add_node( $dom, $root, 'header' );
+
+    my $sup_agency = add_node( $dom, $header, 'supplyingAgencyId' );
+    add_node( $dom, $sup_agency, 'agencyIdType',  'ISIL' );
+    add_node( $dom, $sup_agency, 'agencyIdValue', 'sup_agency_value' );    # TODO: make configurable
+
+    my $req_agency = add_node( $dom, $header, 'requestingAgencyId' );
+    add_node( $dom, $req_agency, 'agencyIdType',  'ISIL' );
+    add_node( $dom, $req_agency, 'agencyIdValue', 'req_agency_value' );    # TODO: make configurable
+
+    add_node( $dom, $header, 'requestingAgencyRequestId', $request->illrequest_id );
+    add_node( $dom, $header, 'supplyingAgencyRequestId',  $request->illrequest_id );
+    add_node( $dom, $header, 'timestamp', $timestamp );
+
+    my $auth = add_node( $dom, $header, 'requestingAgencyAuthentication' );
+    add_node( $dom, $auth, 'accountId',    $self->{config}->{account_id}    // '' );
+    add_node( $dom, $auth, 'securityCode', $self->{config}->{security_code} // '' );
+
+    add_node( $dom, $root, 'action', $action );
+
+    my $spec_file = dirname( $INC{'Koha/REST/V1.pm'} ) . '/../../api/v1/swagger/swagger_bundle.json';
+    $spec_file    = dirname( $INC{'Koha/REST/V1.pm'} ) . '/../../api/v1/swagger/swagger.yaml'
+        unless -f $spec_file;
+
+    $self->_add_message(
+        $request->illrequest_id, 'requestingAgencyMessage',
+        encode_json( Koha::REST::V1::parse_xml( $dom->documentElement, $spec_file ) )
+    );
+
+    my $ua  = LWP::UserAgent->new;
+    my $req = HTTP::Request->new( POST => $endpoint );
+    $req->header( 'Content-Type' => 'application/xml' );
+    $req->content( $dom->toString(1) );
+
+    my $response = $ua->request($req);
+
+    if ( $response->is_success && $response->decoded_content ) {
+        my $doc = eval { XML::LibXML->new()->parse_string( $response->decoded_content ) };
+        if ($doc) {
+            $self->_add_message(
+                $request->illrequest_id, 'requestingAgencyMessageConfirmation',
+                encode_json( Koha::REST::V1::parse_xml( $doc->documentElement, $spec_file ) ),
+                'NOW() + INTERVAL 1 SECOND'
+            );
+        }
+    } else {
+        warn sprintf(
+            'ISO18626: Failed to send requestingAgencyMessage (%s) to %s. Status: %s',
+            $action, $endpoint, $response->status_line
+        );
+        return 0;
+    }
+
+    return 1;
 }
 
 =head3 edititem
