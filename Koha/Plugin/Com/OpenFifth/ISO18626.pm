@@ -638,9 +638,10 @@ sub create {
             _agency_security_code    => $other->{agency_security_code}    // '',
             _agency_name             => $other->{agency_name}             // '',
             supplier_biblio_id       => $other->{supplier_biblio_id}      // '',
-            supplier_item_barcode    => $other->{supplier_item_barcode}   // '',
-            supplier_item_callnumber => $other->{supplier_item_callnumber} // '',
-            supplier_item_library    => $other->{supplier_item_library}   // '',
+            supplier_item_barcode      => $other->{supplier_item_barcode}     // '',
+            supplier_item_callnumber   => $other->{supplier_item_callnumber}  // '',
+            supplier_item_library      => $other->{supplier_item_library}     // '',
+            supplier_item_public_notes => $other->{supplier_item_public_notes} // '',
         } );
 
         my $request_details = _get_request_details( $params, $other );
@@ -1242,9 +1243,10 @@ sub create_request {
     # Add item copy identification to serviceInfo/note (ISO 18626 has no barcode field)
     my %all_attrs = map { lc( $_->type ) => $_->value } $submission->illrequestattributes->as_list;
     my @note_parts;
-    push @note_parts, "Barcode: $all_attrs{supplier_item_barcode}"       if $all_attrs{supplier_item_barcode};
-    push @note_parts, "Callnumber: $all_attrs{supplier_item_callnumber}" if $all_attrs{supplier_item_callnumber};
-    push @note_parts, "Library: $all_attrs{supplier_item_library}"       if $all_attrs{supplier_item_library};
+    push @note_parts, "Barcode: $all_attrs{supplier_item_barcode}"             if $all_attrs{supplier_item_barcode};
+    push @note_parts, "Callnumber: $all_attrs{supplier_item_callnumber}"       if $all_attrs{supplier_item_callnumber};
+    push @note_parts, "Library: $all_attrs{supplier_item_library}"             if $all_attrs{supplier_item_library};
+    push @note_parts, "Notes: $all_attrs{supplier_item_public_notes}"          if $all_attrs{supplier_item_public_notes};
     if (@note_parts) {
         add_node( $dom, $service, 'note', join( '; ', @note_parts ) );
     }

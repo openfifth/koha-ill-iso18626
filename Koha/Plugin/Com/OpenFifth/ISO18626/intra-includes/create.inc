@@ -146,21 +146,23 @@
             [% IF result.api_items && result.api_items.size %]
               <table class="w-100">
                 [% FOREACH item IN result.api_items %]
-                  [% SET enc_item_id = item.item_id     | uri %]
-                  [% SET enc_item_bc = item.external_id | uri %]
-                  [% SET enc_item_cn = item.callnumber  | uri %]
-                  [% SET enc_item_lb = item.libraryname | uri %]
+                  [% SET enc_item_id = item.item_id      | uri %]
+                  [% SET enc_item_bc = item.external_id  | uri %]
+                  [% SET enc_item_cn = item.callnumber   | uri %]
+                  [% SET enc_item_lb = item.libraryname  | uri %]
+                  [% SET enc_item_pn = item.public_notes | uri %]
                   [% SET item_url = base_url
-                    _ "&amp;supplier_item_id="         _ enc_item_id
-                    _ "&amp;supplier_item_barcode="    _ enc_item_bc
-                    _ "&amp;supplier_item_callnumber=" _ enc_item_cn
-                    _ "&amp;supplier_item_library="    _ enc_item_lb
+                    _ "&amp;supplier_item_id="           _ enc_item_id
+                    _ "&amp;supplier_item_barcode="      _ enc_item_bc
+                    _ "&amp;supplier_item_callnumber="   _ enc_item_cn
+                    _ "&amp;supplier_item_library="      _ enc_item_lb
+                    _ "&amp;supplier_item_public_notes=" _ enc_item_pn
                   %]
                   <tr>
                     <td class="w-100">
                       <strong>[% item.libraryname | html %]</strong>
-                      [% IF item.callnumber %]
-                        &mdash; [% item.callnumber | html %]
+                      [% IF item.public_notes %]
+                        ([% item.public_notes | html %])
                       [% END %]
                     </td>
                     <td>
