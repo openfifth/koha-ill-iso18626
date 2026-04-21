@@ -80,6 +80,22 @@ sub new {
 
     $self->{config} = decode_json( $self->retrieve_data('iso18626_config') || '{}' );
 
+    $self->{agencies} = $self->{config}->{agencies} // [];
+
+    # Backward compat: migrate single-agency flat config to agencies array
+    if ( !@{ $self->{agencies} } && $self->{config}->{url} ) {
+        $self->{agencies} = [
+            {
+                name          => 'Default',
+                url           => $self->{config}->{url},
+                account_id    => $self->{config}->{account_id}    // '',
+                security_code => $self->{config}->{security_code} // '',
+                api_user      => '',
+                api_password  => '',
+            }
+        ];
+    }
+
     return $self;
 }
 
@@ -125,9 +141,28 @@ sub configure {
         my $hashed    = { map { $_ => ( scalar $cgi->param($_) )[0] } $cgi->param };
         my $p         = {};
 
+        # Parse repeatable agency blocks (agency_name_0, agency_url_0, ...)
+        my @agencies;
+        {
+            my $idx = 0;
+            while ( exists $hashed->{"agency_url_$idx"} ) {
+                my $url = $hashed->{"agency_url_$idx"} // '';
+                push @agencies, {
+                    name          => $hashed->{"agency_name_$idx"}          // '',
+                    url           => $url,
+                    account_id    => $hashed->{"agency_account_id_$idx"}    // '',
+                    security_code => $hashed->{"agency_security_code_$idx"} // '',
+                    api_user      => $hashed->{"agency_api_user_$idx"}      // '',
+                    api_password  => $hashed->{"agency_api_password_$idx"}  // '',
+                } if $url ne '';
+                $idx++;
+            }
+        }
+        $p->{agencies} = \@agencies;
+
         my $processinginstructions = {};
         foreach my $key ( keys %{$hashed} ) {
-            if ( !exists $blacklist{$key} && $key !~ /^processinginstructions/ ) {
+            if ( !exists $blacklist{$key} && $key !~ /^processinginstructions/ && $key !~ /^agency_/ ) {
                 $p->{$key} = $hashed->{$key};
             }
 
@@ -156,7 +191,7 @@ sub configure {
 
         my $customerreferences = {};
         foreach my $key ( keys %{$hashed} ) {
-            if ( !exists $blacklist{$key} && $key !~ /^customerreferences/ ) {
+            if ( !exists $blacklist{$key} && $key !~ /^customerreferences/ && $key !~ /^agency_/ ) {
                 $p->{$key} = $hashed->{$key};
             }
 
@@ -305,78 +340,114 @@ sub _get_core_string {
 
   my $response = $self->_search($query, $other);
 
-Given a search query hashref, perform a REST API search 
+Searches all configured supplying agencies via their Koha REST API and returns
+an aggregated results hashref with a C<results> arrayref.  Each result is tagged
+with C<_agency_name>, C<_agency_url>, C<_agency_account_id>, C<_agency_security_code>
+so the selection form can carry those values through to the commit stage.
 
 =cut
 
 sub _search {
     my ( $self, $search, $other ) = @_;
 
-    my $ua           = LWP::UserAgent->new;
-    my $search_params;
-    my $response;
+    my $ua       = LWP::UserAgent->new;
+    my $response = { results => [] };
 
-    if ( $search->{issn} ) {
-        my @issn_variations = C4::Koha::GetVariationsOfISSN( $search->{issn} );
-        foreach my $issn (@issn_variations) {
-            push(
-                @{ $search_params->{'-or'} },
-                [ { 'issn' => { 'like' => uri_escape( '%' . $issn . '%' ) } } ]
+    for my $agency ( @{ $self->{agencies} } ) {
+        next unless $agency->{url};
+
+        # Derive REST API base URL from the ISO18626 endpoint URL
+        ( my $base_url = $agency->{url} ) =~ s|/api/v1/.*||;
+
+        # Build search params
+        my $search_params;
+        if ( $search->{issn} ) {
+            my @issn_variations = C4::Koha::GetVariationsOfISSN( $search->{issn} );
+            foreach my $issn (@issn_variations) {
+                push(
+                    @{ $search_params->{'-or'} },
+                    [ { 'issn' => { 'like' => uri_escape( '%' . $issn . '%' ) } } ]
+                );
+            }
+        } elsif ( $search->{isbn} ) {
+            my @isbn_variations = C4::Koha::GetVariationsOfISBN( $search->{isbn} );
+            foreach my $isbn (@isbn_variations) {
+                push(
+                    @{ $search_params->{'-or'} },
+                    [ { 'isbn' => { 'like' => uri_escape( '%' . $isbn . '%' ) } } ]
+                );
+            }
+        } elsif ( $search->{title} ) {
+            push @{ $search_params->{'-or'} }, [ { title => { like => '%' . $search->{title} . '%' } } ];
+        } elsif ( $search->{author} ) {
+            push @{ $search_params->{'-or'} }, [ { author => { like => '%' . $search->{author} . '%' } } ];
+        }
+
+        next unless $search_params;
+
+        my @req_headers = ( 'Accept' => 'application/json' );
+        my $encoded_login;
+        if ( $agency->{api_user} && $agency->{api_password} ) {
+            $encoded_login = encode_base64( $agency->{api_user} . ':' . $agency->{api_password}, '' );
+            push @req_headers, 'Authorization' => "Basic $encoded_login";
+        }
+
+        my $search_response = $ua->request(
+            GET $base_url . '/api/v1/biblios?q=' . encode_json($search_params) . '&_per_page=5',
+            @req_headers
+        );
+
+        unless ( $search_response->is_success ) {
+            warn sprintf(
+                'ISO18626: Search failed for agency "%s" (%s): %s',
+                $agency->{name} // '', $base_url, $search_response->status_line
             );
+            next;
         }
-    } elsif ( $search->{isbn} ) {
-        my @isbn_variations = C4::Koha::GetVariationsOfISBN( $search->{isbn} );
-        foreach my $isbn (@isbn_variations) {
-            push(
-                @{ $search_params->{'-or'} },
-                [ { 'isbn' => { 'like' => uri_escape( '%' . $isbn . '%' ) } } ]
-            );
-        }
-    } else {
-        if ( $search->{title} ) {
-            push( @{ $search_params->{'-or'} }, [ { 'title' => { 'like' => '%' . $search->{title} . '%' } } ] );
+
+        my $decoded = decode_json( $search_response->decoded_content );
+        _add_libraries_info( $decoded, $base_url, $encoded_login // '' );
+
+        for my $result ( @{$decoded} ) {
+            $result->{agency_name}          = $agency->{name}          // '';
+            $result->{agency_url}           = $agency->{url};
+            $result->{agency_account_id}    = $agency->{account_id}    // '';
+            $result->{agency_security_code} = $agency->{security_code} // '';
+            push @{ $response->{results} }, $result;
         }
     }
 
-    my $encoded_login = encode_base64( 'koha:koha' ); #TODO: Fetch from config
-    my @req_headers   = (
-        'Accept'        => 'application/json',
-        'Authorization' => "Basic $encoded_login"
-    );
-
-    # Only fetch 3 biblios, or the search will take too long and timeout
-    # TODO: Make this configurable (?)
-    my $target;
-    $target->{rest_api_endpoint} = 'http://localhost:8081'; #TODO: Fetch from config
-    my $search_response = $ua->request(
-        GET $target->{rest_api_endpoint} . "/api/v1/biblios?q=" . encode_json($search_params) . '&_per_page=3',
-        @req_headers
-    );
-
-    if ( !$search_response->is_success ) {
-        return 'error';
-    }
-
-    my $decoded_content = decode_json( $search_response->decoded_content );
-    _add_libraries_info( $decoded_content, $target->{rest_api_endpoint}, $encoded_login );
-
-    # if ( $other->{op} eq 'migrate' && $other->{illrequest_id} ) {
-    #     my $migrated_from_request = Koha::ILL::Requests->find( $other->{illrequest_id} );
-    #     my $migrated_from_attributes =
-    #         { map { $_->type => $_->value } ( $migrated_from_request->extended_attributes->as_list ) };
-    #     foreach my $key ( keys %$migrated_from_attributes ) {
-    #         $other->{$key} = $migrated_from_attributes->{$key} unless exists $other->{$key};
-    #     }
-    # }
-
-    foreach my $result ( @{$decoded_content} ) {
-        push @{ $response->{results} }, $result;
-    }
-
-    # Return search results
     return $response;
 }
 
+
+=head3 _get_agency_for_request
+
+    my $agency = $self->_get_agency_for_request($request);
+
+Returns a hashref with C<url>, C<account_id>, C<security_code> for the given
+request.  Looks up C<_agency_url> etc. from illrequestattributes first; falls
+back to the first configured agency (or the legacy flat config).
+
+=cut
+
+sub _get_agency_for_request {
+    my ( $self, $request ) = @_;
+
+    my %attrs = map { $_->type => $_->value } $request->extended_attributes->as_list;
+
+    if ( $attrs{_agency_url} ) {
+        return {
+            url           => $attrs{_agency_url},
+            account_id    => $attrs{_agency_account_id}    // '',
+            security_code => $attrs{_agency_security_code} // '',
+            name          => $attrs{_agency_name}          // '',
+        };
+    }
+
+    return $self->{agencies}[0] if @{ $self->{agencies} };
+    return $self->{config};
+}
 
 =head3 _add_libraries_info
 
@@ -439,7 +510,13 @@ sub _add_libraries_info {
 
 =head3 create
 
-Handle the "create" flow
+Handle the "create" flow.
+
+Stages:
+  init          → show search form
+  search_form   → run search across all configured agencies, show results
+  search_results → user selected a result; create local ILL request in NEW status
+  commit        → handled by Koha core; user then clicks "Place request" (confirm) to send ISO18626 request
 
 =cut
 
@@ -450,119 +527,119 @@ sub create {
     my $core_fields = _get_core_string();
     if ( !$stage || $stage eq 'init' ) {
 
-        # First thing we want to do, is check if we're receiving
-        # an OpenURL and transform it into something we can
-        # understand
         if ( $other->{openurl} ) {
-
-            # We only want to transform once
             delete $other->{openurl};
             $params = _openurl_to_ill($params);
         }
 
-        # We simply need our template .INC to produce a form.
         return {
             cwd     => dirname(__FILE__),
             error   => 0,
             status  => '',
             message => '',
             method  => 'create',
-            stage   => 'form',
+            stage   => 'search_form',
             value   => $params,
-            core    => $core_fields
+            core    => $core_fields,
         };
-    } elsif ( $stage eq 'form' ) {
 
-        # We may be receiving a submitted form due to an additional
-        # custom field being added or deleted, or the material type
-        # having been changed, so check for these things
-        if ( !_can_create_request($other) ) {
-            if ( defined $other->{'add_new_custom'} ) {
-                my ( $custom_keys, $custom_vals ) =
-                    _get_custom( $other->{'custom_key'}, $other->{'custom_value'} );
-                push @{$custom_keys}, '---';
-                push @{$custom_vals}, '---';
-                $other->{'custom_key'}   = join "\0", @{$custom_keys};
-                $other->{'custom_value'} = join "\0", @{$custom_vals};
-            } elsif ( defined $other->{'custom_delete'} ) {
-                my $delete_idx = $other->{'custom_delete'};
-                my ( $custom_keys, $custom_vals ) =
-                    _get_custom( $other->{'custom_key'}, $other->{'custom_value'} );
-                splice @{$custom_keys}, $delete_idx, 1;
-                splice @{$custom_vals}, $delete_idx, 1;
-                $other->{'custom_key'}   = join "\0", @{$custom_keys};
-                $other->{'custom_value'} = join "\0", @{$custom_vals};
-            } elsif ( defined $other->{'change_type'} ) {
+    } elsif ( $stage eq 'search_form' || $stage eq 'form' ) {
+        # 'form' is the stage name sent by AutoILLBackendPriority and direct callers;
+        # treat it identically to 'search_form' — run the search with whatever
+        # metadata is already present in $other.
 
-                # We may be receiving a submitted form due to the user having
-                # changed request material type, so we just need to go straight
-                # back to the form, the type has been changed in the params
-                delete $other->{'change_type'};
-            }
-            return {
-                cwd     => dirname(__FILE__),
-                status  => "",
-                message => "",
-                error   => 0,
-                value   => $params,
-                method  => "create",
-                stage   => "form",
-                core    => $core_fields
-            };
-        }
-
-        # Received completed details of form.  Validate and create request.
         my $result = {
             cwd     => dirname(__FILE__),
-            status  => "",
-            message => "",
+            status  => '',
+            message => '',
             error   => 1,
-            value   => {},
-            method  => "create",
-            stage   => "form",
-            core    => $core_fields
+            value   => $params,
+            method  => 'create',
+            stage   => 'search_form',
+            core    => $core_fields,
         };
-        my $failed = 0;
 
         my $unauthenticated_request =
-            C4::Context->preference("ILLOpacUnauthenticatedRequest") && !$other->{'cardnumber'};
-        if ($unauthenticated_request) {
-            ( $failed, $result ) = _validate_form_params( $other, $result, $params );
-            return $result if $failed;
-            my $unauth_request_error = Koha::ILL::Request::unauth_request_data_error($other);
-            if ($unauth_request_error) {
-                $result->{status} = $unauth_request_error;
-                $result->{value}  = $params;
-                $failed           = 1;
-            }
-        } else {
-            ( $failed, $result ) = _validate_form_params( $other, $result, $params );
+            C4::Context->preference("ILLOpacUnauthenticatedRequest") && !$other->{cardnumber};
 
-            my ( $brw_count, $brw ) =
-                _validate_borrower( $other->{'cardnumber'} );
-
+        my ( $brw_count, $brw );
+        unless ($unauthenticated_request) {
+            ( $brw_count, $brw ) = _validate_borrower( $other->{cardnumber} );
             if ( $brw_count == 0 ) {
-                $result->{status} = "invalid_borrower";
-                $result->{value}  = $params;
-                $failed           = 1;
+                $result->{status} = 'invalid_borrower';
+                return $result;
             } elsif ( $brw_count > 1 ) {
-
-                # We must select a specific borrower out of our options.
                 $params->{brw}   = $brw;
                 $result->{value} = $params;
-                $result->{stage} = "borrowers";
+                $result->{stage} = 'borrowers';
                 $result->{error} = 0;
-                $failed          = 1;
+                return $result;
             }
         }
 
-        return $result if $failed;
+        unless ( $other->{title} || $other->{isbn} || $other->{issn} || $other->{author} ) {
+            $result->{status} = 'missing_query';
+            return $result;
+        }
+
+        my $search_results = $self->_search(
+            {
+                title  => $other->{title},
+                author => $other->{author},
+                isbn   => $other->{isbn},
+                issn   => $other->{issn},
+            },
+            $other
+        );
+
+        return {
+            cwd            => dirname(__FILE__),
+            error          => 0,
+            status         => '',
+            message        => '',
+            method         => 'create',
+            stage          => 'search_results',
+            value          => $search_results,
+            other          => $other,
+            core           => $core_fields,
+            borrowernumber => $brw ? $brw->borrowernumber : '',
+            cardnumber     => $other->{cardnumber} // '',
+            branchcode     => $other->{branchcode} // '',
+        };
+
+    } elsif ( $stage eq 'search_results' ) {
+
+        # User has selected a result+agency — create a local ILL request (NEW status).
+        # The ISO18626 request message is sent separately when the user clicks "Place request".
+        my $result = {
+            cwd     => dirname(__FILE__),
+            status  => '',
+            message => '',
+            error   => 1,
+            value   => $params,
+            method  => 'create',
+            stage   => 'search_results',
+            core    => $core_fields,
+        };
+
+        unless ( $other->{branchcode} ) {
+            $result->{status} = 'missing_branch';
+            return $result;
+        }
 
         $self->add_request( { request => $params->{request}, other => $other } );
 
+        # Store the selected agency credentials (form params use no underscore;
+        # illrequestattributes use _agency_* prefix to avoid colliding with bib metadata).
+        $params->{request}->add_or_update_attributes( {
+            _agency_url           => $other->{agency_url}           // '',
+            _agency_account_id    => $other->{agency_account_id}    // '',
+            _agency_security_code => $other->{agency_security_code} // '',
+            _agency_name          => $other->{agency_name}          // '',
+        } );
+
         my $request_details = _get_request_details( $params, $other );
 
-        ## -> create response.
         return {
             cwd     => dirname(__FILE__),
             error   => 0,
@@ -572,18 +649,18 @@ sub create {
             stage   => 'commit',
             next    => 'illview',
             value   => $request_details,
-            core    => $core_fields
+            core    => $core_fields,
         };
+
     } else {
 
-        # Invalid stage, return error.
         return {
             cwd     => dirname(__FILE__),
             error   => 1,
             status  => 'unknown_stage',
             message => '',
             method  => 'create',
-            stage   => $params->{stage},
+            stage   => $stage,
             value   => {},
         };
     }
@@ -687,7 +764,8 @@ Stores both the outgoing message and the incoming confirmation in the plugin mes
 sub _send_requesting_agency_message {
     my ( $self, $request, $action ) = @_;
 
-    my $endpoint = $self->{config}->{url};
+    my $agency   = $self->_get_agency_for_request($request);
+    my $endpoint = $agency->{url};
     unless ($endpoint) {
         warn 'ISO18626: Cannot send requestingAgencyMessage — no supplying agency endpoint configured.';
         return 0;
@@ -709,12 +787,12 @@ sub _send_requesting_agency_message {
     add_node( $dom, $req_agency, 'agencyIdValue', 'req_agency_value' );    # TODO: make configurable
 
     add_node( $dom, $header, 'requestingAgencyRequestId', $request->illrequest_id );
-    add_node( $dom, $header, 'supplyingAgencyRequestId',  $request->illrequest_id );
+    add_node( $dom, $header, 'supplyingAgencyRequestId',  $request->illrequest_id ); #TODO: Store supplyingAgencyRequestId and use it here
     add_node( $dom, $header, 'timestamp', $timestamp );
 
     my $auth = add_node( $dom, $header, 'requestingAgencyAuthentication' );
-    add_node( $dom, $auth, 'accountId',    $self->{config}->{account_id}    // '' );
-    add_node( $dom, $auth, 'securityCode', $self->{config}->{security_code} // '' );
+    add_node( $dom, $auth, 'accountId',    $agency->{account_id}    // '' );
+    add_node( $dom, $auth, 'securityCode', $agency->{security_code} // '' );
 
     add_node( $dom, $root, 'action', $action );
 
@@ -1156,9 +1234,9 @@ sub create_request {
     add_node($dom, $header, 'requestingAgencyRequestId', $submission->illrequest_id);
     add_node($dom, $header, 'timestamp', strftime("%Y-%m-%d %H:%M:%S", localtime));
 
-    my $agency = add_node($dom, $header, 'requestingAgencyId');
-    add_node($dom, $agency, 'agencyIdType',  'ISIL');
-    add_node($dom, $agency, 'agencyIdValue', 'req_agency_value');
+    my $req_agency_node = add_node($dom, $header, 'requestingAgencyId');
+    add_node($dom, $req_agency_node, 'agencyIdType',  'ISIL');
+    add_node($dom, $req_agency_node, 'agencyIdValue', 'req_agency_value');
 
     # --- PUBLICATION INFO SECTION ---
     # Assume $type comes from your attributes or $submission object
@@ -1169,12 +1247,13 @@ sub create_request {
     add_node( $dom, $service, 'serviceType', 'Loan' );
 
     # --- AUTHENTICATION SUB-SECTION ---
+    my $agency = $self->_get_agency_for_request($submission);
     my $auth = add_node($dom, $header, 'requestingAgencyAuthentication');
-    add_node( $dom, $auth, 'accountId',    $self->{config}->{account_id}    // '' );
-    add_node( $dom, $auth, 'securityCode', $self->{config}->{security_code} // '' );
+    add_node( $dom, $auth, 'accountId',    $agency->{account_id}    // '' );
+    add_node( $dom, $auth, 'securityCode', $agency->{security_code} // '' );
 
     # 3. Prepare and send the request
-    my $endpoint = $self->{config}->{url};
+    my $endpoint = $agency->{url};
     unless ($endpoint) {
         my $error = 'ISO18626: No supplying agency endpoint configured.';
         warn $error;
@@ -1331,7 +1410,9 @@ Given the parameters we've been passed, should we create the request
 
 sub _can_create_request {
     my ($params) = @_;
-    return ( defined $params->{'stage'} ) ? 1 : 0;
+    return ( defined $params->{"stage"} && ( $params->{"stage"} eq "search_form" || $params->{"stage"} eq "form" ) )
+        ? 1
+        : 0;
 }
 
 =head3 status_graph
