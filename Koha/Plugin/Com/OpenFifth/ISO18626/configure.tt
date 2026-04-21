@@ -11,6 +11,12 @@
         border-radius: 4px;
         min-width: 30%;
     }
+    .iso18626-remove-li {
+        border-top: 1px solid #ddd;
+        margin-top: .5rem;
+        padding-top: .5rem;
+        text-align: right;
+    }
 </style>
 </head>
 <body>
@@ -24,7 +30,7 @@
             <a href="/cgi-bin/koha/plugins/plugins-home.pl">Plugins</a>
         [% END %]
         [% WRAPPER breadcrumb_item %]
-            <a href="/cgi-bin/koha/plugins/run.pl?class=Koha%3A%3APlugin%3A%3ACom%3A%3APTFSEurope%3A%3AISO18626&amp;method=configure">ISO18626</a>
+            <a href="/cgi-bin/koha/plugins/run.pl?class=Koha%3A%3APlugin%3A%3ACom%3A%3AOpenFifth%3A%3AISO18626&amp;method=configure">ISO18626</a>
         [% END %]
         [% WRAPPER breadcrumb_item bc_active = 1 %]
             <a href="#">Configuration</a>
@@ -36,46 +42,113 @@
     <div class="row">
         <div class="col-md-10 offset-md-2 order-sm-1">
             <h1>ISO18626 configuration</h1>
-            <div class="alert alert-info">Please configure the connection details for the supplying agency.</div>
-            
+            <div class="alert alert-info">Configure one or more supplying agencies below.</div>
+
             <form id="iso18626_configure" method="get">
-                <fieldset class="rows">
-                    <input type="hidden" name="class" value="[% CLASS %]"/>
-                    <input type="hidden" name="method" value="[% METHOD %]"/>
-                    
-                    <legend>Connection details</legend>
-                    <div class="row">
+                <input type="hidden" name="class"  value="[% CLASS %]"/>
+                <input type="hidden" name="method" value="[% METHOD %]"/>
+                <input type="hidden" name="save"   value="1"/>
+
+                <div id="iso18626-agencies">
+                    [% FOREACH agency IN config.agencies %]
+                    <fieldset class="rows iso18626-agency-entry">
+                        <legend class="agency-display-name">[% agency.name || 'Supplying agency' | html %]</legend>
                         <ol>
                             <li>
-                                <div id="iso18626_url">
-                                    <label for="iso18626_url_input">Supplying agency URL: </label>
-                                    <input id="iso18626_url_input" class="required_input" placeholder="http://localhost:8081/api/v1/public/ill/iso18626" type="text" name="url" value="[% config.url | html %]">
-                                    <a href="#" data-bs-toggle="tooltip" title="The endpoint URL for the supplying agency's ISO18626 service."><i class="fa-solid fa-circle-question"></i></a>
-                                </div>
+                                <label>Name:</label>
+                                <input type="text" class="agency-name" placeholder="e.g. National Library" value="[% agency.name | html %]">
+                                <a href="#" data-bs-toggle="tooltip" title="A display name for this supplying agency."><i class="fa-solid fa-circle-question"></i></a>
                             </li>
                             <li>
-                                <div id="iso18626_accountid">
-                                    <label for="iso18626_accountid_input">Account ID: </label>
-                                    <input id="iso18626_accountid_input" class="required_input" placeholder="Enter Account ID" type="text" name="account_id" value="[% config.account_id | html %]">
-                                    <a href="#" data-bs-toggle="tooltip" title="The accountId sent in the ISO18626 request header for authentication."><i class="fa-solid fa-circle-question"></i></a>
-                                </div>
+                                <label>ISO18626 endpoint URL:</label>
+                                <input type="text" class="agency-url" placeholder="http://supplier.example.com/api/v1/public/ill/iso18626" value="[% agency.url | html %]">
+                                <a href="#" data-bs-toggle="tooltip" title="The ISO18626 endpoint URL of the supplying agency."><i class="fa-solid fa-circle-question"></i></a>
                             </li>
                             <li>
-                                <div id="iso18626_securitycode">
-                                    <label for="iso18626_securitycode_input">Security code: </label>
-                                    <input id="iso18626_securitycode_input" class="required_input" placeholder="Enter Security Code" type="password" name="security_code" value="[% config.security_code | html %]">
-                                    <a href="#" data-bs-toggle="tooltip" title="The securityCode sent in the ISO18626 request header for authentication."><i class="fa-solid fa-circle-question"></i></a>
-                                </div>
+                                <label>Account ID:</label>
+                                <input type="text" class="agency-account-id" placeholder="Enter Account ID" value="[% agency.account_id | html %]">
+                                <a href="#" data-bs-toggle="tooltip" title="The accountId sent in the ISO18626 request header for authentication."><i class="fa-solid fa-circle-question"></i></a>
+                            </li>
+                            <li>
+                                <label>Security code:</label>
+                                <input type="password" class="agency-security-code" placeholder="Enter Security Code" value="[% agency.security_code | html %]">
+                                <a href="#" data-bs-toggle="tooltip" title="The securityCode sent in the ISO18626 request header for authentication."><i class="fa-solid fa-circle-question"></i></a>
+                            </li>
+                            <li>
+                                <label>API username:</label>
+                                <input type="text" class="agency-api-user" placeholder="Koha REST API username for search" value="[% agency.api_user | html %]">
+                                <a href="#" data-bs-toggle="tooltip" title="Koha REST API username used to search the supplying agency's catalogue."><i class="fa-solid fa-circle-question"></i></a>
+                            </li>
+                            <li>
+                                <label>API password:</label>
+                                <input type="password" class="agency-api-password" placeholder="Koha REST API password for search" value="[% agency.api_password | html %]">
+                                <a href="#" data-bs-toggle="tooltip" title="Koha REST API password used to search the supplying agency's catalogue."><i class="fa-solid fa-circle-question"></i></a>
+                            </li>
+                            <li class="iso18626-remove-li">
+                                <button type="button" class="btn btn-sm btn-danger remove-agency"><i class="fa fa-trash"></i> Remove this agency</button>
                             </li>
                         </ol>
-                    </div>
+                    </fieldset>
+                    [% END %]
+                </div>
 
-                    <input type="hidden" name="save" value="1" />
-                    <input id="submit_button" class="btn btn-primary" type="submit" value="Save configuration" />
+                <fieldset class="action">
+                    <button type="button" id="add-agency" class="btn btn-default"><i class="fa fa-plus"></i> Add supplying agency</button>
+                    <input id="submit_button" class="btn btn-primary" type="submit" value="Save configuration"/>
                 </fieldset>
             </form>
         </div>
     </div>
 </div>
+
+<template id="agency-row-template">
+    <fieldset class="rows iso18626-agency-entry">
+        <legend class="agency-display-name">Supplying agency</legend>
+        <ol>
+            <li><label>Name:</label><input type="text" class="agency-name" placeholder="e.g. National Library" value=""></li>
+            <li><label>ISO18626 endpoint URL:</label><input type="text" class="agency-url" placeholder="http://supplier.example.com/api/v1/public/ill/iso18626" value=""></li>
+            <li><label>Account ID:</label><input type="text" class="agency-account-id" placeholder="Enter Account ID" value=""></li>
+            <li><label>Security code:</label><input type="password" class="agency-security-code" placeholder="Enter Security Code" value=""></li>
+            <li><label>API username:</label><input type="text" class="agency-api-user" placeholder="Koha REST API username for search" value=""></li>
+            <li><label>API password:</label><input type="password" class="agency-api-password" placeholder="Koha REST API password for search" value=""></li>
+            <li class="iso18626-remove-li"><button type="button" class="btn btn-sm btn-danger remove-agency"><i class="fa fa-trash"></i> Remove this agency</button></li>
+        </ol>
+    </fieldset>
+</template>
+
+<script>
+// Update the fieldset legend as the user types the agency name
+document.getElementById('iso18626-agencies').addEventListener('input', function (e) {
+    if (e.target.classList.contains('agency-name')) {
+        var legend = e.target.closest('.iso18626-agency-entry').querySelector('.agency-display-name');
+        if (legend) legend.textContent = e.target.value || 'Supplying agency';
+    }
+});
+
+// Add new agency row
+document.getElementById('add-agency').addEventListener('click', function () {
+    var tmpl = document.getElementById('agency-row-template').content.cloneNode(true);
+    document.getElementById('iso18626-agencies').appendChild(tmpl);
+});
+
+// Remove agency row (event delegation — works for both pre-existing and newly added rows)
+document.getElementById('iso18626-agencies').addEventListener('click', function (e) {
+    if (e.target.closest('.remove-agency')) {
+        e.target.closest('.iso18626-agency-entry').remove();
+    }
+});
+
+// Re-index all agency field names before submitting so each name is unique
+document.getElementById('iso18626_configure').addEventListener('submit', function () {
+    document.querySelectorAll('#iso18626-agencies .iso18626-agency-entry').forEach(function (entry, i) {
+        entry.querySelector('.agency-name').name          = 'agency_name_'          + i;
+        entry.querySelector('.agency-url').name           = 'agency_url_'           + i;
+        entry.querySelector('.agency-account-id').name    = 'agency_account_id_'    + i;
+        entry.querySelector('.agency-security-code').name = 'agency_security_code_' + i;
+        entry.querySelector('.agency-api-user').name      = 'agency_api_user_'      + i;
+        entry.querySelector('.agency-api-password').name  = 'agency_api_password_'  + i;
+    });
+});
+</script>
 
 [% INCLUDE 'intranet-bottom.inc' %]
