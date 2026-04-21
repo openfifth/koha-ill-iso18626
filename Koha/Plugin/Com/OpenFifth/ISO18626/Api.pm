@@ -154,6 +154,7 @@ sub receive_supplying_agency_message {
         $ill_request->add_or_update_attributes(
             { supplying_agency_request_id => $supplying_id }
         );
+        $ill_request->orderid($supplying_id)->store;
     }
 
     my $now                = dt_from_string()->strftime('%Y-%m-%dT%H:%M:%S');

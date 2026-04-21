@@ -633,16 +633,17 @@ sub create {
         # illrequestattributes use _agency_* prefix to avoid colliding with bib metadata).
         # Also store the supplier-side biblio/item identifiers chosen by the user.
         $params->{request}->add_or_update_attributes( {
-            _agency_url              => $other->{agency_url}              // '',
-            _agency_account_id       => $other->{agency_account_id}       // '',
-            _agency_security_code    => $other->{agency_security_code}    // '',
-            _agency_name             => $other->{agency_name}             // '',
-            supplier_biblio_id       => $other->{supplier_biblio_id}      // '',
-            supplier_item_barcode      => $other->{supplier_item_barcode}     // '',
-            supplier_item_callnumber   => $other->{supplier_item_callnumber}  // '',
-            supplier_item_library      => $other->{supplier_item_library}     // '',
+            _agency_url                => $other->{agency_url}                // '',
+            _agency_account_id         => $other->{agency_account_id}         // '',
+            _agency_security_code      => $other->{agency_security_code}      // '',
+            _agency_name               => $other->{agency_name}               // '',
+            supplier_biblio_id         => $other->{supplier_biblio_id}        // '',
+            supplier_item_barcode      => $other->{supplier_item_barcode}      // '',
+            supplier_item_callnumber   => $other->{supplier_item_callnumber}   // '',
+            supplier_item_library      => $other->{supplier_item_library}      // '',
             supplier_item_public_notes => $other->{supplier_item_public_notes} // '',
         } );
+
 
         my $request_details = _get_request_details( $params, $other );
 
@@ -1308,14 +1309,6 @@ sub create_request {
                     $submission->illrequest_id, 'requestConfirmation',
                     encode_json( Koha::REST::V1::parse_xml( $doc->documentElement, $spec_file ) )
                 );
-                my ($sup_id_node) = $doc->findnodes(
-                    '//*[local-name()="confirmationHeader"]/*[local-name()="supplyingAgencyRequestId"]'
-                );
-                if ($sup_id_node) {
-                    $submission->add_or_update_attributes(
-                        { supplying_agency_request_id => $sup_id_node->textContent }
-                    );
-                }
             } else {
                 $self->_add_message(
                     $submission->illrequest_id, 'requestConfirmation',
