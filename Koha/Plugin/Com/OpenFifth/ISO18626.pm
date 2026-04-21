@@ -631,11 +631,16 @@ sub create {
 
         # Store the selected agency credentials (form params use no underscore;
         # illrequestattributes use _agency_* prefix to avoid colliding with bib metadata).
+        # Also store the supplier-side biblio/item identifiers chosen by the user.
         $params->{request}->add_or_update_attributes( {
-            _agency_url           => $other->{agency_url}           // '',
-            _agency_account_id    => $other->{agency_account_id}    // '',
-            _agency_security_code => $other->{agency_security_code} // '',
-            _agency_name          => $other->{agency_name}          // '',
+            _agency_url              => $other->{agency_url}              // '',
+            _agency_account_id       => $other->{agency_account_id}       // '',
+            _agency_security_code    => $other->{agency_security_code}    // '',
+            _agency_name             => $other->{agency_name}             // '',
+            supplier_biblio_id       => $other->{supplier_biblio_id}      // '',
+            supplier_item_barcode    => $other->{supplier_item_barcode}   // '',
+            supplier_item_callnumber => $other->{supplier_item_callnumber} // '',
+            supplier_item_library    => $other->{supplier_item_library}   // '',
         } );
 
         my $request_details = _get_request_details( $params, $other );
@@ -786,8 +791,11 @@ sub _send_requesting_agency_message {
     add_node( $dom, $req_agency, 'agencyIdType',  'ISIL' );
     add_node( $dom, $req_agency, 'agencyIdValue', 'req_agency_value' );    # TODO: make configurable
 
+    my %attrs        = map { $_->type => $_->value } $request->extended_attributes->as_list;
+    my $supplying_id = $attrs{supplying_agency_request_id} // $request->illrequest_id;
+
     add_node( $dom, $header, 'requestingAgencyRequestId', $request->illrequest_id );
-    add_node( $dom, $header, 'supplyingAgencyRequestId',  $request->illrequest_id ); #TODO: Store supplyingAgencyRequestId and use it here
+    add_node( $dom, $header, 'supplyingAgencyRequestId',  $supplying_id );
     add_node( $dom, $header, 'timestamp', $timestamp );
 
     my $auth = add_node( $dom, $header, 'requestingAgencyAuthentication' );
@@ -1160,6 +1168,7 @@ sub _get_attribute_map {
                 add_node( $dom, $id, 'bibliographicItemIdentifier',     $val );
             }
         },
+        'supplier_biblio_id' => { parent => $bib, tag => 'supplierUniqueRecordId' },
     };
 }
 
@@ -1230,6 +1239,16 @@ sub create_request {
         }
     }
 
+    # Add item copy identification to serviceInfo/note (ISO 18626 has no barcode field)
+    my %all_attrs = map { lc( $_->type ) => $_->value } $submission->illrequestattributes->as_list;
+    my @note_parts;
+    push @note_parts, "Barcode: $all_attrs{supplier_item_barcode}"       if $all_attrs{supplier_item_barcode};
+    push @note_parts, "Callnumber: $all_attrs{supplier_item_callnumber}" if $all_attrs{supplier_item_callnumber};
+    push @note_parts, "Library: $all_attrs{supplier_item_library}"       if $all_attrs{supplier_item_library};
+    if (@note_parts) {
+        add_node( $dom, $service, 'note', join( '; ', @note_parts ) );
+    }
+
     # 3. Fill in Static/Required Header details
     add_node($dom, $header, 'requestingAgencyRequestId', $submission->illrequest_id);
     add_node($dom, $header, 'timestamp', strftime("%Y-%m-%d %H:%M:%S", localtime));
@@ -1282,12 +1301,25 @@ sub create_request {
         my $confirmation_xml = $response->decoded_content;
         if ($confirmation_xml) {
             my $doc = eval { XML::LibXML->new()->parse_string($confirmation_xml) };
-            $self->_add_message(
-                $submission->illrequest_id, 'requestConfirmation',
-                $doc
-                    ? encode_json( Koha::REST::V1::parse_xml( $doc->documentElement, $spec_file ) )
-                    : $confirmation_xml
-            );
+            if ($doc) {
+                $self->_add_message(
+                    $submission->illrequest_id, 'requestConfirmation',
+                    encode_json( Koha::REST::V1::parse_xml( $doc->documentElement, $spec_file ) )
+                );
+                my ($sup_id_node) = $doc->findnodes(
+                    '//*[local-name()="confirmationHeader"]/*[local-name()="supplyingAgencyRequestId"]'
+                );
+                if ($sup_id_node) {
+                    $submission->add_or_update_attributes(
+                        { supplying_agency_request_id => $sup_id_node->textContent }
+                    );
+                }
+            } else {
+                $self->_add_message(
+                    $submission->illrequest_id, 'requestConfirmation',
+                    $confirmation_xml
+                );
+            }
         }
         $submission->status('RequestReceived')->store;
         return { success => 1, message => '' };
@@ -1555,6 +1587,15 @@ sub status_graph {
             ui_method_name => 'Request cancellation',
             method         => 'cancel',
             next_actions   => ['Cancelled'],
+            ui_method_icon => 'fa-times',
+        },
+        ERROR => {
+            prev_actions   => [ ],
+            id             => 'ERROR',
+            name           => 'Request error',
+            ui_method_name => 0,
+            method         => 0,
+            next_actions   => [],
             ui_method_icon => 'fa-times',
         },
     };

@@ -149,6 +149,13 @@ sub receive_supplying_agency_message {
         $ill_request->status($new_status)->store;
     }
 
+    # Store the supplier's request ID so we can echo it back in requestingAgencyMessages
+    if ( my $supplying_id = $msg->{header}{supplyingAgencyRequestId} ) {
+        $ill_request->add_or_update_attributes(
+            { supplying_agency_request_id => $supplying_id }
+        );
+    }
+
     my $now                = dt_from_string()->strftime('%Y-%m-%dT%H:%M:%S');
     my $timestamp_received = $msg->{header}{timestamp} // $now;
 

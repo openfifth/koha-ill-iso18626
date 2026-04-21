@@ -102,8 +102,7 @@
           <th>Author</th>
           <th>ISBN</th>
           <th>ISSN</th>
-          <th>Available at</th>
-          <th></th>
+          <th>Available items</th>
         </tr>
       </thead>
       <tbody>
@@ -115,44 +114,64 @@
           <td>[% result.isbn | html %]</td>
           <td>[% result.issn | html %]</td>
           <td>
-            [% IF result.api_items && result.api_items.size %]
-              <ul class="list-unstyled mb-0">
-                [% FOREACH item IN result.api_items %]
-                  <li>[% item.libraryname | html %]</li>
-                [% END %]
-              </ul>
-            [% ELSE %]
-              &mdash;
-            [% END %]
-          </td>
-          <td>
-            [% SET enc_backend  = whole.other.backend       | uri %]
-            [% SET enc_brn      = whole.borrowernumber      | uri %]
-            [% SET enc_branch   = whole.branchcode          | uri %]
-            [% SET enc_title    = result.title              | uri %]
-            [% SET enc_author   = result.author             | uri %]
-            [% SET enc_isbn     = result.isbn               | uri %]
-            [% SET enc_issn     = result.issn               | uri %]
-            [% SET enc_agname   = result.agency_name        | uri %]
-            [% SET enc_agurl    = result.agency_url         | uri %]
-            [% SET enc_agaid    = result.agency_account_id  | uri %]
-            [% SET enc_agsc     = result.agency_security_code | uri %]
-            [% SET target = "/cgi-bin/koha/ill/ill-requests.pl"
+            [%# Build the parameters shared by every button in this row %]
+            [% SET enc_backend  = whole.other.backend          | uri %]
+            [% SET enc_brn      = whole.borrowernumber         | uri %]
+            [% SET enc_branch   = whole.branchcode             | uri %]
+            [% SET enc_title    = result.title                 | uri %]
+            [% SET enc_author   = result.author                | uri %]
+            [% SET enc_isbn     = result.isbn                  | uri %]
+            [% SET enc_issn     = result.issn                  | uri %]
+            [% SET enc_agname   = result.agency_name           | uri %]
+            [% SET enc_agurl    = result.agency_url            | uri %]
+            [% SET enc_agaid    = result.agency_account_id     | uri %]
+            [% SET enc_agsc     = result.agency_security_code  | uri %]
+            [% SET enc_supbib   = result.biblio_id             | uri %]
+            [% SET base_url = "/cgi-bin/koha/ill/ill-requests.pl"
               _ "?method=create"
               _ "&amp;stage=search_results"
-              _ "&amp;backend="          _ enc_backend
-              _ "&amp;borrowernumber="   _ enc_brn
-              _ "&amp;branchcode="       _ enc_branch
-              _ "&amp;title="            _ enc_title
-              _ "&amp;author="           _ enc_author
-              _ "&amp;isbn="             _ enc_isbn
-              _ "&amp;issn="             _ enc_issn
-              _ "&amp;agency_name="      _ enc_agname
-              _ "&amp;agency_url="       _ enc_agurl
-              _ "&amp;agency_account_id="    _ enc_agaid
-              _ "&amp;agency_security_code=" _ enc_agsc
+              _ "&amp;backend="               _ enc_backend
+              _ "&amp;borrowernumber="        _ enc_brn
+              _ "&amp;branchcode="            _ enc_branch
+              _ "&amp;title="                 _ enc_title
+              _ "&amp;author="                _ enc_author
+              _ "&amp;isbn="                  _ enc_isbn
+              _ "&amp;issn="                  _ enc_issn
+              _ "&amp;agency_name="           _ enc_agname
+              _ "&amp;agency_url="            _ enc_agurl
+              _ "&amp;agency_account_id="     _ enc_agaid
+              _ "&amp;agency_security_code="  _ enc_agsc
+              _ "&amp;supplier_biblio_id="    _ enc_supbib
             %]
-            <a class="btn btn-sm btn-default" href="[% target %]">Request from this agency</a>
+            [% IF result.api_items && result.api_items.size %]
+              <table class="w-100">
+                [% FOREACH item IN result.api_items %]
+                  [% SET enc_item_id = item.item_id     | uri %]
+                  [% SET enc_item_bc = item.external_id | uri %]
+                  [% SET enc_item_cn = item.callnumber  | uri %]
+                  [% SET enc_item_lb = item.libraryname | uri %]
+                  [% SET item_url = base_url
+                    _ "&amp;supplier_item_id="         _ enc_item_id
+                    _ "&amp;supplier_item_barcode="    _ enc_item_bc
+                    _ "&amp;supplier_item_callnumber=" _ enc_item_cn
+                    _ "&amp;supplier_item_library="    _ enc_item_lb
+                  %]
+                  <tr>
+                    <td class="w-100">
+                      <strong>[% item.libraryname | html %]</strong>
+                      [% IF item.callnumber %]
+                        &mdash; [% item.callnumber | html %]
+                      [% END %]
+                    </td>
+                    <td>
+                      <a class="btn btn-sm btn-default" href="[% item_url %]">Request this item</a>
+                    </td>
+                  </tr>
+                [% END %]
+              </table>
+            [% ELSE %]
+              <a class="btn btn-sm btn-default" href="[% base_url %]">Request from this agency</a>
+            [% END %]
           </td>
         </tr>
         [% END %]
