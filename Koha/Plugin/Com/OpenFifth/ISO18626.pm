@@ -152,12 +152,14 @@ sub configure {
             while ( exists $hashed->{"agency_url_$idx"} ) {
                 my $url = $hashed->{"agency_url_$idx"} // '';
                 push @agencies, {
-                    name          => $hashed->{"agency_name_$idx"}          // '',
-                    url           => $url,
-                    account_id    => $hashed->{"agency_account_id_$idx"}    // '',
-                    security_code => $hashed->{"agency_security_code_$idx"} // '',
-                    api_user      => $hashed->{"agency_api_user_$idx"}      // '',
-                    api_password  => $hashed->{"agency_api_password_$idx"}  // '',
+                    name           => $hashed->{"agency_name_$idx"}           // '',
+                    url            => $url,
+                    account_id     => $hashed->{"agency_account_id_$idx"}     // '',
+                    security_code  => $hashed->{"agency_security_code_$idx"}  // '',
+                    api_user       => $hashed->{"agency_api_user_$idx"}       // '',
+                    api_password   => $hashed->{"agency_api_password_$idx"}   // '',
+                    agency_id      => $hashed->{"agency_id_$idx"}             // '',
+                    agency_id_type => $hashed->{"agency_id_type_$idx"}        // 'ISIL',
                 } if $url ne '';
                 $idx++;
             }
@@ -425,6 +427,43 @@ sub _search {
 }
 
 
+=head3 _requesting_agency_id
+
+    my ( $type, $value ) = $self->_requesting_agency_id;
+
+Returns the ISO 18626 agency identifier of THIS library (the requesting agency),
+taken from the plugin configuration keys C<requesting_agency_id_type> (default
+C<ISIL>) and C<requesting_agency_id>.
+
+=cut
+
+sub _requesting_agency_id {
+    my ($self) = @_;
+
+    return (
+        $self->{config}->{requesting_agency_id_type} || 'ISIL',
+        $self->{config}->{requesting_agency_id}      || '',
+    );
+}
+
+=head3 _supplying_agency_id
+
+    my ( $type, $value ) = $self->_supplying_agency_id($agency);
+
+Returns the ISO 18626 agency identifier of the partner we are talking to, taken
+from that agency's own configuration block.
+
+=cut
+
+sub _supplying_agency_id {
+    my ( $self, $agency ) = @_;
+
+    return (
+        $agency->{agency_id_type} || 'ISIL',
+        $agency->{agency_id}      || '',
+    );
+}
+
 =head3 _get_agency_for_request
 
     my $agency = $self->_get_agency_for_request($request);
@@ -442,10 +481,12 @@ sub _get_agency_for_request {
 
     if ( $attrs{_agency_url} ) {
         return {
-            url           => $attrs{_agency_url},
-            account_id    => $attrs{_agency_account_id}    // '',
-            security_code => $attrs{_agency_security_code} // '',
-            name          => $attrs{_agency_name}          // '',
+            url            => $attrs{_agency_url},
+            account_id     => $attrs{_agency_account_id}     // '',
+            security_code  => $attrs{_agency_security_code}  // '',
+            name           => $attrs{_agency_name}           // '',
+            agency_id      => $attrs{_agency_id}             // '',
+            agency_id_type => $attrs{_agency_id_type}        // 'ISIL',
         };
     }
 
@@ -789,13 +830,15 @@ sub _send_requesting_agency_message {
 
     my $header = add_node( $dom, $root, 'header' );
 
+    my ( $sup_agency_type, $sup_agency_value ) = $self->_supplying_agency_id($agency);
     my $sup_agency = add_node( $dom, $header, 'supplyingAgencyId' );
-    add_node( $dom, $sup_agency, 'agencyIdType',  'ISIL' );
-    add_node( $dom, $sup_agency, 'agencyIdValue', 'sup_agency_value' );    # TODO: make configurable
+    add_node( $dom, $sup_agency, 'agencyIdType',  $sup_agency_type );
+    add_node( $dom, $sup_agency, 'agencyIdValue', $sup_agency_value );
 
+    my ( $req_agency_type, $req_agency_value ) = $self->_requesting_agency_id;
     my $req_agency = add_node( $dom, $header, 'requestingAgencyId' );
-    add_node( $dom, $req_agency, 'agencyIdType',  'ISIL' );
-    add_node( $dom, $req_agency, 'agencyIdValue', 'req_agency_value' );    # TODO: make configurable
+    add_node( $dom, $req_agency, 'agencyIdType',  $req_agency_type );
+    add_node( $dom, $req_agency, 'agencyIdValue', $req_agency_value );
 
     my %attrs        = map { $_->type => $_->value } $request->extended_attributes->as_list;
     my $supplying_id = $attrs{supplying_agency_request_id} // $request->illrequest_id;
@@ -1260,9 +1303,10 @@ sub create_request {
     add_node($dom, $header, 'requestingAgencyRequestId', $submission->illrequest_id);
     add_node($dom, $header, 'timestamp', $timestamp);
 
+    my ( $req_agency_type, $req_agency_value ) = $self->_requesting_agency_id;
     my $req_agency_node = add_node($dom, $header, 'requestingAgencyId');
-    add_node($dom, $req_agency_node, 'agencyIdType',  'ISIL');
-    add_node($dom, $req_agency_node, 'agencyIdValue', 'req_agency_value');
+    add_node($dom, $req_agency_node, 'agencyIdType',  $req_agency_type);
+    add_node($dom, $req_agency_node, 'agencyIdValue', $req_agency_value);
 
     # --- PUBLICATION INFO SECTION ---
     # Assume $type comes from your attributes or $submission object
