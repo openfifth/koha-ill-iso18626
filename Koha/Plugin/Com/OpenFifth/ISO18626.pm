@@ -46,6 +46,10 @@ use HTTP::Request::Common;
 
 our $VERSION = "1.0.0";
 
+# The namespace declared by the official ISO 18626 schema.
+# See https://illtransactions.org/schemas/ISO-18626-v1_2.xsd
+use constant ISO18626_NS => 'http://illtransactions.org/2013/iso18626';
+
 our $metadata = {
     name            => 'ISO18626',
     author          => 'Open Fifth',
@@ -781,7 +785,7 @@ sub _send_requesting_agency_message {
     my $timestamp = strftime( '%Y-%m-%dT%H:%M:%SZ', gmtime );
 
     my $dom  = XML::LibXML::Document->new( '1.0', 'UTF-8' );
-    my $root = add_node( $dom, $dom, 'requestingAgencyMessage' );
+    my $root = add_node( $dom, $dom, 'requestingAgencyMessage', undef, { xmlns => ISO18626_NS } );
 
     my $header = add_node( $dom, $root, 'header' );
 
@@ -1210,11 +1214,11 @@ sub create_request {
     my ( $self, $submission ) = @_;
 
     # 1. Setup Metadata
-    my $ns_uri    = 'http://example.com/ill/request';
+    my $ns_uri    = ISO18626_NS;
     my $timestamp = strftime( "%Y-%m-%d %H:%M:%S", localtime );
 
     my $dom  = XML::LibXML::Document->new('1.0', 'UTF-8');
-    my $root = add_node($dom, $dom, 'request', undef, { xmlns => 'http://example.com/ill/request' });
+    my $root = add_node($dom, $dom, 'request', undef, { xmlns => $ns_uri });
 
     # 2. Setup Top-Level Containers
     my $header  = add_node( $dom, $root, 'header' );
