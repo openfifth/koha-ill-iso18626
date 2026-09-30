@@ -1215,7 +1215,7 @@ sub create_request {
 
     # 1. Setup Metadata
     my $ns_uri    = ISO18626_NS;
-    my $timestamp = strftime( "%Y-%m-%d %H:%M:%S", localtime );
+    my $timestamp = strftime( '%Y-%m-%dT%H:%M:%SZ', gmtime );
 
     my $dom  = XML::LibXML::Document->new('1.0', 'UTF-8');
     my $root = add_node($dom, $dom, 'request', undef, { xmlns => $ns_uri });
@@ -1258,7 +1258,7 @@ sub create_request {
 
     # 3. Fill in Static/Required Header details
     add_node($dom, $header, 'requestingAgencyRequestId', $submission->illrequest_id);
-    add_node($dom, $header, 'timestamp', strftime("%Y-%m-%d %H:%M:%S", localtime));
+    add_node($dom, $header, 'timestamp', $timestamp);
 
     my $req_agency_node = add_node($dom, $header, 'requestingAgencyId');
     add_node($dom, $req_agency_node, 'agencyIdType',  'ISIL');
