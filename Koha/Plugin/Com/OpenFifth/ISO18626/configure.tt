@@ -49,6 +49,22 @@
                 <input type="hidden" name="method" value="[% METHOD %]"/>
                 <input type="hidden" name="save"   value="1"/>
 
+                <fieldset class="rows">
+                    <legend>This library</legend>
+                    <ol>
+                        <li>
+                            <label for="requesting_agency_id">Our agency ID:</label>
+                            <input type="text" id="requesting_agency_id" name="requesting_agency_id" placeholder="e.g. GB-UkLoBLS" value="[% config.requesting_agency_id | html %]">
+                            <a href="#" data-bs-toggle="tooltip" title="The agencyIdValue this library sends as requestingAgencyId. Supplying agencies identify you by this value."><i class="fa-solid fa-circle-question"></i></a>
+                        </li>
+                        <li>
+                            <label for="requesting_agency_id_type">Our agency ID type:</label>
+                            <input type="text" id="requesting_agency_id_type" name="requesting_agency_id_type" placeholder="ISIL" value="[% config.requesting_agency_id_type | html %]">
+                            <a href="#" data-bs-toggle="tooltip" title="The agencyIdType, normally ISIL."><i class="fa-solid fa-circle-question"></i></a>
+                        </li>
+                    </ol>
+                </fieldset>
+
                 <div id="iso18626-agencies">
                     [% FOREACH agency IN config.agencies %]
                     <fieldset class="rows iso18626-agency-entry">
@@ -63,6 +79,16 @@
                                 <label>ISO18626 endpoint URL:</label>
                                 <input type="text" class="agency-url" placeholder="http://supplier.example.com/api/v1/public/ill/iso18626" value="[% agency.url | html %]">
                                 <a href="#" data-bs-toggle="tooltip" title="The ISO18626 endpoint URL of the supplying agency."><i class="fa-solid fa-circle-question"></i></a>
+                            </li>
+                            <li>
+                                <label>Their agency ID:</label>
+                                <input type="text" class="agency-id" placeholder="e.g. VN-NASATI" value="[% agency.agency_id | html %]">
+                                <a href="#" data-bs-toggle="tooltip" title="The agencyIdValue of this supplying agency, sent as supplyingAgencyId."><i class="fa-solid fa-circle-question"></i></a>
+                            </li>
+                            <li>
+                                <label>Their agency ID type:</label>
+                                <input type="text" class="agency-id-type" placeholder="ISIL" value="[% agency.agency_id_type | html %]">
+                                <a href="#" data-bs-toggle="tooltip" title="The agencyIdType of this supplying agency, normally ISIL."><i class="fa-solid fa-circle-question"></i></a>
                             </li>
                             <li>
                                 <label>Account ID:</label>
@@ -107,6 +133,8 @@
         <ol>
             <li><label>Name:</label><input type="text" class="agency-name" placeholder="e.g. National Library" value=""></li>
             <li><label>ISO18626 endpoint URL:</label><input type="text" class="agency-url" placeholder="http://supplier.example.com/api/v1/public/ill/iso18626" value=""></li>
+            <li><label>Their agency ID:</label><input type="text" class="agency-id" placeholder="e.g. VN-NASATI" value=""></li>
+            <li><label>Their agency ID type:</label><input type="text" class="agency-id-type" placeholder="ISIL" value=""></li>
             <li><label>Account ID:</label><input type="text" class="agency-account-id" placeholder="Enter Account ID" value=""></li>
             <li><label>Security code:</label><input type="password" class="agency-security-code" placeholder="Enter Security Code" value=""></li>
             <li><label>API username:</label><input type="text" class="agency-api-user" placeholder="Koha REST API username for search" value=""></li>
@@ -143,6 +171,8 @@ document.getElementById('iso18626_configure').addEventListener('submit', functio
     document.querySelectorAll('#iso18626-agencies .iso18626-agency-entry').forEach(function (entry, i) {
         entry.querySelector('.agency-name').name          = 'agency_name_'          + i;
         entry.querySelector('.agency-url').name           = 'agency_url_'           + i;
+        entry.querySelector('.agency-id').name            = 'agency_id_'            + i;
+        entry.querySelector('.agency-id-type').name       = 'agency_id_type_'       + i;
         entry.querySelector('.agency-account-id').name    = 'agency_account_id_'    + i;
         entry.querySelector('.agency-security-code').name = 'agency_security_code_' + i;
         entry.querySelector('.agency-api-user').name      = 'agency_api_user_'      + i;
