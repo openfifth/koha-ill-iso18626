@@ -734,6 +734,68 @@ sub mark_received {
     };
 }
 
+=head3 retrieve_document
+
+    Download the document from the supplier's deliveryInfo URL, attach it to the request,
+    send a Received requestingAgencyMessage to the supplier and set local status to
+    DocumentReceived. DocumentReceived is a local-only status — it has no ISO18626
+    equivalent but signals that the document is ready to be forwarded to the patron.
+
+=cut
+
+sub retrieve_document {
+    my ( $self, $params ) = @_;
+
+    my $request = $params->{request};
+    my %attrs   = map { $_->type => $_->value } $request->extended_attributes->as_list;
+
+    my $error = {
+        error   => 1,
+        status  => 'document_retrieval_failed',
+        method  => 'retrieve_document',
+        stage   => 'init',
+        next    => 'illview',
+        value   => $params,
+    };
+
+    return { %$error, message => 'This Koha version cannot store ILL documents.' }
+        unless _supports_documents();
+
+    my $delivery_url = $attrs{delivery_url};
+    return { %$error, message => 'The supplier did not send a document URL.' } unless $delivery_url;
+
+    my $response = LWP::UserAgent->new->get($delivery_url);
+    return { %$error, message => 'Could not download the document: ' . $response->status_line }
+        unless $response->is_success;
+
+    my $file_name = $response->filename || 'document';
+    eval { $request->add_document( { file_name => $file_name, file_content => $response->content } ) };
+    return { %$error, message => 'Could not store the document: ' . $@ } if $@;
+
+    $self->_send_requesting_agency_message( $request, 'Received' );
+    $request->status('DocumentReceived')->store;
+
+    return {
+        error   => 0,
+        status  => '',
+        message => '',
+        method  => 'retrieve_document',
+        stage   => 'commit',
+        next    => 'illview',
+    };
+}
+
+=head3 _supports_documents
+
+    Return whether this Koha version can attach documents to ILL requests.
+
+=cut
+
+sub _supports_documents {
+    require Koha::ILL::Request;
+    return Koha::ILL::Request->can('add_document') ? 1 : 0;
+}
+
 =head3 ship_return
 
     Send a ShippedReturn requestingAgencyMessage to the supplier and set local status to ShippedReturn.
@@ -1533,8 +1595,20 @@ sub status_graph {
             name           => 'Copy completed',
             ui_method_name => 0,
             method         => 0,
-            next_actions   => [],
+            next_actions   => _supports_documents() ? ['DocumentReceived'] : [],
             ui_method_icon => 0,
+        },
+
+        # Local-only status (not ISO18626): set when the requesting library
+        # retrieves the supplied document and sends a Received action to the supplier.
+        DocumentReceived => {
+            prev_actions   => ['CopyCompleted'],
+            id             => 'DocumentReceived',
+            name           => 'Document received',
+            ui_method_name => 'Retrieve document',
+            method         => 'retrieve_document',
+            next_actions   => [],
+            ui_method_icon => 'fa-file-arrow-down',
         },
         LoanCompleted => {
             prev_actions   => [ 'Loaned', 'ItemReceived', 'ShippedReturn' ],

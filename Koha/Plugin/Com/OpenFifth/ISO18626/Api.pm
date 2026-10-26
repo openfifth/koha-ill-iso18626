@@ -149,6 +149,11 @@ sub receive_supplying_agency_message {
         $ill_request->status($new_status)->store;
     }
 
+    # Store the supplier's download URL so the document can be retrieved later
+    if ( my $delivery_url = $msg->{deliveryInfo}{URL} ) {
+        $ill_request->add_or_update_attributes( { delivery_url => $delivery_url } );
+    }
+
     # Store the supplier's request ID so we can echo it back in requestingAgencyMessages
     if ( my $supplying_id = $msg->{header}{supplyingAgencyRequestId} ) {
         $ill_request->add_or_update_attributes(
