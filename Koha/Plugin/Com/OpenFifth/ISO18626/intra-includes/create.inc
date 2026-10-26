@@ -94,6 +94,20 @@
       </button>
     </p>
 
+    <fieldset class="rows">
+      <ol>
+        <li>
+          <label class="required" for="service_type">Service type:</label>
+          <select class="required" required="required" id="service_type" name="service_type">
+            <option value="Loan">Loan</option>
+            <option value="Copy">Copy</option>
+            <option value="CopyOrLoan">Copy or loan</option>
+          </select>
+          <span class="required">Required</span>
+        </li>
+      </ol>
+    </fieldset>
+
     <table id="iso18626-results-table" class="table table-bordered table-striped">
       <thead>
         <tr>
@@ -166,13 +180,13 @@
                       [% END %]
                     </td>
                     <td>
-                      <a class="btn btn-sm btn-default" href="[% item_url %]">Request this item</a>
+                      <a class="btn btn-sm btn-default request-item" href="[% item_url %]">Request this item</a>
                     </td>
                   </tr>
                 [% END %]
               </table>
             [% ELSE %]
-              <a class="btn btn-sm btn-default" href="[% base_url %]">Request from this agency</a>
+              <a class="btn btn-sm btn-default request-item" href="[% base_url %]">Request from this agency</a>
             [% END %]
           </td>
         </tr>
@@ -224,6 +238,17 @@
 [% BLOCK backend_jsinclude %]
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    function setServiceType() {
+        var service_type = $('#service_type').val();
+        $('#iso18626-results-table a.request-item').each(function () {
+            var url = new URL(this.href);
+            url.searchParams.set('service_type', service_type);
+            this.href = url.toString();
+        });
+    }
+    $('#service_type').on('change', setServiceType);
+    setServiceType();
+
     [% IF koha_version.major <= 22 && koha_version.minor < 11 %]
     $('#cardnumber').autocomplete({
         source: "/cgi-bin/koha/circ/ysearch.pl",

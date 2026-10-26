@@ -1093,6 +1093,7 @@ sub _get_core_fields {
         published_date  => __('Publication date'),
         published_place => __('Place of publication'),
         publisher       => __('Publisher'),
+        service_type    => __('Service type'),
         pubmedid        => __('PubMed ID'),
         pmid            => __('PubMed ID'),
         sponsor         => __('Sponsor'),
@@ -1328,7 +1329,9 @@ sub create_request {
     add_node($dom, $pub, 'publicationType', $iso_type);
 
     # --- SERVICE INFO SECTION ---
-    add_node( $dom, $service, 'serviceType', 'Loan' );
+    my $service_type = $all_attrs{service_type} // '';
+    $service_type = 'Loan' unless $service_type =~ /^(?:Loan|Copy|CopyOrLoan)$/;
+    add_node( $dom, $service, 'serviceType', $service_type );
 
     # --- AUTHENTICATION SUB-SECTION ---
     my $agency = $self->_get_agency_for_request($submission);
