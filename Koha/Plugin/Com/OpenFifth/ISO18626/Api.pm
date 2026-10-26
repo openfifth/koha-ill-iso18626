@@ -117,6 +117,9 @@ sub receive_supplying_agency_message {
         );
     }
 
+    # Koha 26.11+ suppliers wrap messages in the ISO18626Message envelope
+    $json = $json->{ISO18626Message} if exists $json->{ISO18626Message};
+
     my $msg = $json->{supplyingAgencyMessage};
     unless ($msg) {
         return $c->render(
