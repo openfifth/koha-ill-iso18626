@@ -792,6 +792,51 @@ sub retrieve_document {
     };
 }
 
+=head3 send_to_patron
+
+    Send the ILL_DOCUMENT_READY notice, linking to the documents attached to the request,
+    to the patron and set local status to DocumentSent.
+
+=cut
+
+sub send_to_patron {
+    my ( $self, $params ) = @_;
+
+    my $request = $params->{request};
+
+    my $error = {
+        error   => 1,
+        status  => 'document_sending_failed',
+        method  => 'send_to_patron',
+        stage   => 'init',
+        next    => 'illview',
+        value   => $params,
+    };
+
+    return { %$error, message => 'This Koha version cannot store ILL documents.' }
+        unless _supports_documents();
+
+    return { %$error, message => 'The request has no documents to send.' }
+        unless $request->documents->count;
+
+    my $result = $request->send_patron_notice('ILL_DOCUMENT_READY');
+    return {
+        %$error,
+        message => "The notice could not be sent. Check the patron's 'Interlibrary loan ready' messaging preference."
+    } unless $result->{result} && @{ $result->{result}->{success} };
+
+    $request->status('DocumentSent')->store;
+
+    return {
+        error   => 0,
+        status  => '',
+        message => '',
+        method  => 'send_to_patron',
+        stage   => 'commit',
+        next    => 'illview',
+    };
+}
+
 =head3 _supports_documents
 
     Return whether this Koha version can attach documents to ILL requests.
@@ -1617,8 +1662,20 @@ sub status_graph {
             name           => 'Document received',
             ui_method_name => 'Retrieve document',
             method         => 'retrieve_document',
-            next_actions   => [],
+            next_actions   => ['DocumentSent'],
             ui_method_icon => 'fa-file-arrow-down',
+        },
+
+        # Local-only status (not ISO18626): set when the patron is sent the
+        # ILL_DOCUMENT_READY notice linking to the retrieved document.
+        DocumentSent => {
+            prev_actions   => ['DocumentReceived'],
+            id             => 'DocumentSent',
+            name           => 'Sent to user',
+            ui_method_name => 'Send to patron',
+            method         => 'send_to_patron',
+            next_actions   => [],
+            ui_method_icon => 'fa-envelope',
         },
         LoanCompleted => {
             prev_actions   => [ 'Loaned', 'ItemReceived', 'ShippedReturn' ],
