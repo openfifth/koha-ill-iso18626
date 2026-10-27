@@ -35,6 +35,7 @@ use File::Basename qw( dirname );
 use MIME::Base64 qw( decode_base64 encode_base64 );
 use C4::Installer;
 use C4::Context;
+use URI;
 use URI::Escape;
 
 use Koha::REST::V1;
@@ -154,6 +155,7 @@ sub configure {
                     security_code => $hashed->{"agency_security_code_$idx"} // '',
                     api_user      => $hashed->{"agency_api_user_$idx"}      // '',
                     api_password  => $hashed->{"agency_api_password_$idx"}  // '',
+                    document_host => $hashed->{"agency_document_host_$idx"} // '',
                 } if $url ne '';
                 $idx++;
             }
@@ -771,7 +773,13 @@ sub retrieve_document {
     my $delivery_url = $attrs{delivery_url};
     return { %$error, message => 'The supplier did not send a document URL.' } unless $delivery_url;
 
-    my $response = LWP::UserAgent->new->get($delivery_url);
+    my $delivery_uri = URI->new($delivery_url);
+    return { %$error, message => 'The document URL does not point to the supplying agency.' }
+        unless ( $delivery_uri->scheme // '' ) =~ /^https?$/
+        && grep { $_ eq lc $delivery_uri->host } $self->_document_hosts($request);
+
+    my $response = LWP::UserAgent->new( protocols_allowed => [ 'http', 'https' ], max_redirect => 0 )
+        ->get($delivery_url);
     return { %$error, message => 'Could not download the document: ' . $response->status_line }
         unless $response->is_success;
 
@@ -835,6 +843,28 @@ sub send_to_patron {
         stage   => 'commit',
         next    => 'illview',
     };
+}
+
+=head3 _document_hosts
+
+    my @hosts = $self->_document_hosts($request);
+
+    Return the hosts documents for this request may be retrieved from: the host of
+    the supplying agency's endpoint URL, and the agency's configured document host.
+
+=cut
+
+sub _document_hosts {
+    my ( $self, $request ) = @_;
+
+    my $agency_url = $self->_get_agency_for_request($request)->{url} // '';
+    my $agency_uri = URI->new($agency_url);
+    my @hosts      = $agency_uri->can('host') ? ( lc $agency_uri->host ) : ();
+
+    my ($agency) = grep { ( $_->{url} // '' ) eq $agency_url } @{ $self->{agencies} };
+    push @hosts, lc $agency->{document_host} if $agency && $agency->{document_host};
+
+    return grep { length } @hosts;
 }
 
 =head3 _supports_documents

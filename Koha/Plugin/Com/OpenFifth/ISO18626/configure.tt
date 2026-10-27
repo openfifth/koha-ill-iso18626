@@ -84,6 +84,11 @@
                                 <input type="password" class="agency-api-password" placeholder="Koha REST API password for search" value="[% agency.api_password | html %]">
                                 <a href="#" data-bs-toggle="tooltip" title="Koha REST API password used to search the supplying agency's catalogue."><i class="fa-solid fa-circle-question"></i></a>
                             </li>
+                            <li>
+                                <label>Document host:</label>
+                                <input type="text" class="agency-document-host" placeholder="e.g. catalogue.supplier.example.com" value="[% agency.document_host | html %]">
+                                <a href="#" data-bs-toggle="tooltip" title="Host the supplying agency sends document download links from, if different from the endpoint URL's host (usually its OPAC). Documents are only retrieved from these hosts."><i class="fa-solid fa-circle-question"></i></a>
+                            </li>
                             <li class="iso18626-remove-li">
                                 <button type="button" class="btn btn-sm btn-danger remove-agency"><i class="fa fa-trash"></i> Remove this agency</button>
                             </li>
@@ -111,6 +116,7 @@
             <li><label>Security code:</label><input type="password" class="agency-security-code" placeholder="Enter Security Code" value=""></li>
             <li><label>API username:</label><input type="text" class="agency-api-user" placeholder="Koha REST API username for search" value=""></li>
             <li><label>API password:</label><input type="password" class="agency-api-password" placeholder="Koha REST API password for search" value=""></li>
+            <li><label>Document host:</label><input type="text" class="agency-document-host" placeholder="e.g. catalogue.supplier.example.com" value=""></li>
             <li class="iso18626-remove-li"><button type="button" class="btn btn-sm btn-danger remove-agency"><i class="fa fa-trash"></i> Remove this agency</button></li>
         </ol>
     </fieldset>
@@ -147,6 +153,7 @@ document.getElementById('iso18626_configure').addEventListener('submit', functio
         entry.querySelector('.agency-security-code').name = 'agency_security_code_' + i;
         entry.querySelector('.agency-api-user').name      = 'agency_api_user_'      + i;
         entry.querySelector('.agency-api-password').name  = 'agency_api_password_'  + i;
+        entry.querySelector('.agency-document-host').name = 'agency_document_host_' + i;
     });
 });
 </script>
