@@ -342,8 +342,9 @@ sub _get_core_string {
 
 Searches all configured supplying agencies via their Koha REST API and returns
 an aggregated results hashref with a C<results> arrayref.  Each result is tagged
-with C<_agency_name>, C<_agency_url>, C<_agency_account_id>, C<_agency_security_code>
-so the selection form can carry those values through to the commit stage.
+with C<agency_name> and C<agency_index>, the position of the agency in the
+plugin configuration, so the selection form can identify the agency without
+exposing its credentials.
 
 =cut
 
@@ -353,7 +354,8 @@ sub _search {
     my $ua       = LWP::UserAgent->new;
     my $response = { results => [] };
 
-    for my $agency ( @{ $self->{agencies} } ) {
+    for my $agency_index ( 0 .. $#{ $self->{agencies} } ) {
+        my $agency = $self->{agencies}->[$agency_index];
         next unless $agency->{url};
 
         # Derive REST API base URL from the ISO18626 endpoint URL
@@ -409,10 +411,8 @@ sub _search {
         _add_libraries_info( $decoded, $base_url, $encoded_login // '' );
 
         for my $result ( @{$decoded} ) {
-            $result->{agency_name}          = $agency->{name}          // '';
-            $result->{agency_url}           = $agency->{url};
-            $result->{agency_account_id}    = $agency->{account_id}    // '';
-            $result->{agency_security_code} = $agency->{security_code} // '';
+            $result->{agency_name}  = $agency->{name} // '';
+            $result->{agency_index} = $agency_index;
             push @{ $response->{results} }, $result;
         }
     }
@@ -627,16 +627,23 @@ sub create {
             return $result;
         }
 
+        my $agency_index = $other->{agency_index} // '';
+        my $agency       = $agency_index =~ /^\d+$/ ? $self->{agencies}->[$agency_index] : undef;
+        unless ($agency) {
+            $result->{status} = 'invalid_agency';
+            return $result;
+        }
+
         $self->add_request( { request => $params->{request}, other => $other } );
 
-        # Store the selected agency credentials (form params use no underscore;
-        # illrequestattributes use _agency_* prefix to avoid colliding with bib metadata).
+        # Store the selected agency credentials (illrequestattributes use the
+        # _agency_* prefix to avoid colliding with bib metadata).
         # Also store the supplier-side biblio/item identifiers chosen by the user.
         $params->{request}->add_or_update_attributes( {
-            _agency_url                => $other->{agency_url}                // '',
-            _agency_account_id         => $other->{agency_account_id}         // '',
-            _agency_security_code      => $other->{agency_security_code}      // '',
-            _agency_name               => $other->{agency_name}               // '',
+            _agency_url                => $agency->{url},
+            _agency_account_id         => $agency->{account_id}    // '',
+            _agency_security_code      => $agency->{security_code} // '',
+            _agency_name               => $agency->{name}          // '',
             supplier_biblio_id         => $other->{supplier_biblio_id}        // '',
             supplier_item_barcode      => $other->{supplier_item_barcode}      // '',
             supplier_item_callnumber   => $other->{supplier_item_callnumber}   // '',

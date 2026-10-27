@@ -14,6 +14,8 @@
     <p><em>Please Note:</em> Branch is a mandatory field.</p>
   [% ELSIF whole.status == 'invalid_branch' %]
     <p><em>Please Note:</em> The branch you chose is invalid.</p>
+  [% ELSIF whole.status == 'invalid_agency' %]
+    <p><em>Please Note:</em> The supplying agency you chose is not configured.</p>
   [% ELSIF whole.message %]
     <p><em>[% whole.message %]</em></p>
   [% ELSE %]
@@ -136,10 +138,7 @@
             [% SET enc_author   = result.author                | uri %]
             [% SET enc_isbn     = result.isbn                  | uri %]
             [% SET enc_issn     = result.issn                  | uri %]
-            [% SET enc_agname   = result.agency_name           | uri %]
-            [% SET enc_agurl    = result.agency_url            | uri %]
-            [% SET enc_agaid    = result.agency_account_id     | uri %]
-            [% SET enc_agsc     = result.agency_security_code  | uri %]
+            [% SET enc_agidx    = result.agency_index          | uri %]
             [% SET enc_supbib   = result.biblio_id             | uri %]
             [% SET base_url = "/cgi-bin/koha/ill/ill-requests.pl"
               _ "?method=create"
@@ -151,10 +150,7 @@
               _ "&amp;author="                _ enc_author
               _ "&amp;isbn="                  _ enc_isbn
               _ "&amp;issn="                  _ enc_issn
-              _ "&amp;agency_name="           _ enc_agname
-              _ "&amp;agency_url="            _ enc_agurl
-              _ "&amp;agency_account_id="     _ enc_agaid
-              _ "&amp;agency_security_code="  _ enc_agsc
+              _ "&amp;agency_index="          _ enc_agidx
               _ "&amp;supplier_biblio_id="    _ enc_supbib
             %]
             [% IF result.api_items && result.api_items.size %]
