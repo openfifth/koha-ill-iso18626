@@ -133,6 +133,7 @@
             [%# Build the parameters shared by every button in this row %]
             [% SET enc_backend  = whole.other.backend          | uri %]
             [% SET enc_brn      = whole.borrowernumber         | uri %]
+            [% SET enc_card     = whole.cardnumber             | uri %]
             [% SET enc_branch   = whole.branchcode             | uri %]
             [% SET enc_title    = result.title                 | uri %]
             [% SET enc_author   = result.author                | uri %]
@@ -145,6 +146,7 @@
               _ "&amp;stage=search_results"
               _ "&amp;backend="               _ enc_backend
               _ "&amp;borrowernumber="        _ enc_brn
+              _ "&amp;cardnumber="            _ enc_card
               _ "&amp;branchcode="            _ enc_branch
               _ "&amp;title="                 _ enc_title
               _ "&amp;author="                _ enc_author
