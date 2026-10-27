@@ -89,7 +89,7 @@
           <select class="required" required="required" id="service_type">
             <option value="Loan">Loan</option>
             <option value="Copy">Copy</option>
-            <option value="CopyOrLoan">Copy or loan</option>
+            <option value="CopyOrLoan" selected="selected">Copy or loan</option>
           </select>
           <span class="required">Required</span>
         </li>
@@ -158,7 +158,7 @@
     <input type="hidden" name="stage"              value="search_results"/>
     <input type="hidden" name="backend"            value="[% whole.other.backend | html %]"/>
     <input type="hidden" name="branchcode"         value="[% whole.branchcode | html %]"/>
-    <input type="hidden" name="service_type"       value="Loan"/>
+    <input type="hidden" name="service_type"       value="CopyOrLoan"/>
     <input type="hidden" name="title"              value="[% result.title | html %]"/>
     <input type="hidden" name="author"             value="[% result.author | html %]"/>
     <input type="hidden" name="isbn"               value="[% result.isbn | html %]"/>

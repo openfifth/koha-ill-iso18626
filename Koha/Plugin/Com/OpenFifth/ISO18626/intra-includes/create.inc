@@ -103,7 +103,7 @@
           <select class="required" required="required" id="service_type" name="service_type">
             <option value="Loan">Loan</option>
             <option value="Copy">Copy</option>
-            <option value="CopyOrLoan">Copy or loan</option>
+            <option value="CopyOrLoan" selected="selected">Copy or loan</option>
           </select>
           <span class="required">Required</span>
         </li>
