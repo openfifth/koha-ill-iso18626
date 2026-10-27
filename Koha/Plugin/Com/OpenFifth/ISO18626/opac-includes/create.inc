@@ -125,6 +125,11 @@
                       [% IF item.public_notes %]
                         ([% item.public_notes | html %])
                       [% END %]
+                      [% IF item.unavailable_reasons.size %]
+                        <br/><span class="text-danger">[% item.unavailable_reasons.join(', ') | html %]</span>
+                      [% ELSE %]
+                        <br/><span class="text-success">Available</span>
+                      [% END %]
                     </td>
                     <td>
                       [% PROCESS request_form result = result item = item label = 'Request this item' %]

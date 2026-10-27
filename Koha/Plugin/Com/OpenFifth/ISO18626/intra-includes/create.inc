@@ -176,6 +176,17 @@
                       [% IF item.public_notes %]
                         ([% item.public_notes | html %])
                       [% END %]
+                      [% IF item.callnumber %]
+                        <br/>Call number: [% item.callnumber | html %]
+                      [% END %]
+                      [% IF item.external_id %]
+                        <br/>Barcode: [% item.external_id | html %]
+                      [% END %]
+                      [% IF item.unavailable_reasons.size %]
+                        <br/><span class="text-danger">[% item.unavailable_reasons.join(', ') | html %]</span>
+                      [% ELSE %]
+                        <br/><span class="text-success">Available</span>
+                      [% END %]
                     </td>
                     <td>
                       <a class="btn btn-sm btn-default request-item" href="[% item_url %]">Request this item</a>

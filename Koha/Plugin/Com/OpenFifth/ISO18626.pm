@@ -499,6 +499,7 @@ sub _add_libraries_info {
                 delete $_->{_strings};
                 $_->{libraryname} = $_->{strings}->{home_library_id}->{str}
                     // $_->{strings}->{holding_library_id}->{str};
+                $_->{unavailable_reasons} = _item_unavailable_reasons($_);
                 $_;
             } @{$items_response}
         ];
@@ -508,6 +509,30 @@ sub _add_libraries_info {
 
         $record->{api_items} = \@sorted_items_response;
     }
+}
+
+=head3 _item_unavailable_reasons
+
+    my $reasons = _item_unavailable_reasons($item);
+
+Return the reasons why an item returned by the supplying agency's items API
+cannot currently be lent, using the agency's own descriptions where available.
+
+=cut
+
+sub _item_unavailable_reasons {
+    my ($item) = @_;
+
+    my $strings = $item->{strings} // {};
+    my @reasons;
+    push @reasons, __('Checked out') if $item->{checked_out_date};
+    push @reasons, $strings->{lost_status}->{str} || __('Lost') if $item->{lost_status};
+    push @reasons, $strings->{withdrawn}->{str}   || __('Withdrawn') if $item->{withdrawn};
+    push @reasons, $strings->{not_for_loan_status}->{str} || __('Not for loan')
+        if $item->{effective_not_for_loan_status};
+    push @reasons, $strings->{damaged_status}->{str} || __('Damaged') if $item->{damaged_status};
+
+    return \@reasons;
 }
 
 =head3 create
