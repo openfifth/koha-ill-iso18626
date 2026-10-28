@@ -45,13 +45,13 @@ use Koha::Patrons;
 use LWP::UserAgent;
 use HTTP::Request::Common;
 
-our $VERSION = "1.0.0";
+our $VERSION = "1.0.1";
 
 our $metadata = {
     name            => 'ISO18626',
     author          => 'Open Fifth',
     date_authored   => '2026-04-07',
-    date_updated    => "2026-04-07",
+    date_updated    => "2026-10-28",
     minimum_version => '26.11.00.000',
     maximum_version => undef,
     version         => $VERSION,
