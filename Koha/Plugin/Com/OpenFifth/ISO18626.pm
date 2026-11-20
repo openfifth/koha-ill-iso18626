@@ -24,8 +24,6 @@ use warnings;
 use base            qw(Koha::Plugins::Base);
 use Koha::DateUtils qw( dt_from_string );
 use Koha::I18N      qw(__);
-use XML::LibXML;
-use POSIX qw(strftime);
 
 use File::Basename qw( dirname );
 use CGI;
@@ -38,20 +36,19 @@ use C4::Context;
 use URI;
 use URI::Escape;
 
-use Koha::REST::V1;
 use Koha::Plugin::Com::OpenFifth::ISO18626::Lib::API;
 use Koha::Libraries;
 use Koha::Patrons;
 use LWP::UserAgent;
 use HTTP::Request::Common;
 
-our $VERSION = "1.0.1";
+our $VERSION = "2.0.0";
 
 our $metadata = {
     name            => 'ISO18626',
     author          => 'Open Fifth',
     date_authored   => '2026-04-07',
-    date_updated    => "2026-10-28",
+    date_updated    => "2026-11-20",
     minimum_version => '26.11.00.000',
     maximum_version => undef,
     version         => $VERSION,
@@ -81,23 +78,59 @@ sub new {
 
     $self->{config} = decode_json( $self->retrieve_data('iso18626_config') || '{}' );
 
-    $self->{agencies} = $self->{config}->{agencies} // [];
-
-    # Backward compat: migrate single-agency flat config to agencies array
-    if ( !@{ $self->{agencies} } && $self->{config}->{url} ) {
-        $self->{agencies} = [
-            {
-                name          => 'Default',
-                url           => $self->{config}->{url},
-                account_id    => $self->{config}->{account_id}    // '',
-                security_code => $self->{config}->{security_code} // '',
-                api_user      => '',
-                api_password  => '',
-            }
-        ];
-    }
-
     return $self;
+}
+
+=head3 _core_supports_requesting
+
+    my $supported = _core_supports_requesting();
+
+Return whether this Koha version can send ISO 18626 requests (Koha::ILL::ISO18626::Requester, bug 41091).
+
+=cut
+
+sub _core_supports_requesting {
+    return eval { require Koha::ILL::ISO18626::Requester; require Koha::ILL::ISO18626::SupplyingAgencies; 1 } ? 1 : 0;
+}
+
+=head3 _supplying_agencies
+
+    my @agencies = $self->_supplying_agencies;
+
+Return the supplying agencies configured in Koha, each as a hashref with the
+I<Koha::ILL::ISO18626::SupplyingAgency> (C<agency>) and this plugin's settings
+for it (C<api_user>, C<api_password>, C<document_host>).
+
+=cut
+
+sub _supplying_agencies {
+    my ($self) = @_;
+
+    return () unless _core_supports_requesting();
+
+    return map { $self->_supplying_agency_with_settings($_) }
+        Koha::ILL::ISO18626::SupplyingAgencies->search( {}, { order_by => 'name' } )->as_list;
+}
+
+=head3 _supplying_agency_with_settings
+
+    my $agency = $self->_supplying_agency_with_settings($supplying_agency);
+
+Return C<$supplying_agency> and this plugin's settings for it, as a hashref.
+
+=cut
+
+sub _supplying_agency_with_settings {
+    my ( $self, $supplying_agency ) = @_;
+
+    my $settings = $self->{config}->{agency_settings}->{ $supplying_agency->id } // {};
+
+    return {
+        agency        => $supplying_agency,
+        api_user      => $settings->{api_user}      // '',
+        api_password  => $settings->{api_password}  // '',
+        document_host => $settings->{document_host} // '',
+    };
 }
 
 sub configure {
@@ -130,6 +163,8 @@ sub configure {
 
         $template->param(
             config                      => $self->{config},
+            core_supports_requesting    => _core_supports_requesting(),
+            supplying_agencies          => [ $self->_supplying_agencies ],
             processinginstructions      => \@processinginstructions,
             processinginstructions_size => scalar @processinginstructions,
             customerreferences          => \@customerreferences,
@@ -142,25 +177,13 @@ sub configure {
         my $hashed    = { map { $_ => ( scalar $cgi->param($_) )[0] } $cgi->param };
         my $p         = {};
 
-        # Parse repeatable agency blocks (agency_name_0, agency_url_0, ...)
-        my @agencies;
-        {
-            my $idx = 0;
-            while ( exists $hashed->{"agency_url_$idx"} ) {
-                my $url = $hashed->{"agency_url_$idx"} // '';
-                push @agencies, {
-                    name          => $hashed->{"agency_name_$idx"}          // '',
-                    url           => $url,
-                    account_id    => $hashed->{"agency_account_id_$idx"}    // '',
-                    security_code => $hashed->{"agency_security_code_$idx"} // '',
-                    api_user      => $hashed->{"agency_api_user_$idx"}      // '',
-                    api_password  => $hashed->{"agency_api_password_$idx"}  // '',
-                    document_host => $hashed->{"agency_document_host_$idx"} // '',
-                } if $url ne '';
-                $idx++;
-            }
+        # Settings for each supplying agency configured in Koha (agency_api_user_<id>, ...)
+        my $agency_settings = {};
+        for my $key ( keys %{$hashed} ) {
+            next unless $key =~ /^agency_(api_user|api_password|document_host)_(\d+)$/;
+            $agency_settings->{$2}->{$1} = $hashed->{$key} // '';
         }
-        $p->{agencies} = \@agencies;
+        $p->{agency_settings} = $agency_settings;
 
         my $processinginstructions = {};
         foreach my $key ( keys %{$hashed} ) {
@@ -248,28 +271,14 @@ sub api_namespace {
 sub install {
     my ( $self, $args ) = @_;
 
-    my $table = $self->get_qualified_table_name('messages');
-    my $dbh   = C4::Context->dbh;
-
-    $dbh->do("
-        CREATE TABLE IF NOT EXISTS `$table` (
-            `id`            INT(11) NOT NULL AUTO_INCREMENT,
-            `illrequest_id` BIGINT(20) UNSIGNED NOT NULL,
-            `type`          VARCHAR(64) NOT NULL,
-            `content`       LONGTEXT NOT NULL,
-            `timestamp`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            FOREIGN KEY (`illrequest_id`)
-                REFERENCES `illrequests` (`illrequest_id`)
-                ON DELETE CASCADE ON UPDATE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    ") or return 0;
-
     return 1;
 }
 
 sub upgrade {
     my ( $self, $args ) = @_;
+
+    my $table = $self->get_qualified_table_name('messages');
+    C4::Context->dbh->do("DROP TABLE IF EXISTS `$table`") or return 0;
 
     my $dt = dt_from_string();
     $self->store_data( { last_upgraded => $dt->ymd('-') . ' ' . $dt->hms(':') } );
@@ -342,11 +351,9 @@ sub _get_core_string {
 
   my $response = $self->_search($query, $other);
 
-Searches all configured supplying agencies via their Koha REST API and returns
-an aggregated results hashref with a C<results> arrayref.  Each result is tagged
-with C<agency_name> and C<agency_index>, the position of the agency in the
-plugin configuration, so the selection form can identify the agency without
-exposing its credentials.
+Searches all supplying agencies configured in Koha via their Koha REST API and
+returns an aggregated results hashref with a C<results> arrayref.  Each result
+is tagged with C<agency_name> and C<supplying_agency_id>.
 
 =cut
 
@@ -356,12 +363,11 @@ sub _search {
     my $ua       = LWP::UserAgent->new;
     my $response = { results => [] };
 
-    for my $agency_index ( 0 .. $#{ $self->{agencies} } ) {
-        my $agency = $self->{agencies}->[$agency_index];
-        next unless $agency->{url};
+    for my $agency ( $self->_supplying_agencies ) {
+        my $supplying_agency = $agency->{agency};
 
         # Derive REST API base URL from the ISO18626 endpoint URL
-        ( my $base_url = $agency->{url} ) =~ s|/api/v1/.*||;
+        ( my $base_url = $supplying_agency->endpoint ) =~ s|/api/v1/.*||;
 
         # Build search params
         my $search_params;
@@ -404,7 +410,7 @@ sub _search {
         unless ( $search_response->is_success ) {
             warn sprintf(
                 'ISO18626: Search failed for agency "%s" (%s): %s',
-                $agency->{name} // '', $base_url, $search_response->status_line
+                $supplying_agency->name // '', $base_url, $search_response->status_line
             );
             next;
         }
@@ -413,42 +419,13 @@ sub _search {
         _add_libraries_info( $decoded, $base_url, $encoded_login // '' );
 
         for my $result ( @{$decoded} ) {
-            $result->{agency_name}  = $agency->{name} // '';
-            $result->{agency_index} = $agency_index;
+            $result->{agency_name}         = $supplying_agency->name // '';
+            $result->{supplying_agency_id} = $supplying_agency->id;
             push @{ $response->{results} }, $result;
         }
     }
 
     return $response;
-}
-
-
-=head3 _get_agency_for_request
-
-    my $agency = $self->_get_agency_for_request($request);
-
-Returns a hashref with C<url>, C<account_id>, C<security_code> for the given
-request.  Looks up C<_agency_url> etc. from illrequestattributes first; falls
-back to the first configured agency (or the legacy flat config).
-
-=cut
-
-sub _get_agency_for_request {
-    my ( $self, $request ) = @_;
-
-    my %attrs = map { $_->type => $_->value } $request->extended_attributes->as_list;
-
-    if ( $attrs{_agency_url} ) {
-        return {
-            url           => $attrs{_agency_url},
-            account_id    => $attrs{_agency_account_id}    // '',
-            security_code => $attrs{_agency_security_code} // '',
-            name          => $attrs{_agency_name}          // '',
-        };
-    }
-
-    return $self->{agencies}[0] if @{ $self->{agencies} };
-    return $self->{config};
 }
 
 =head3 _add_libraries_info
@@ -654,28 +631,25 @@ sub create {
             return $result;
         }
 
-        my $agency_index = $other->{agency_index} // '';
-        my $agency       = $agency_index =~ /^\d+$/ ? $self->{agencies}->[$agency_index] : undef;
-        unless ($agency) {
+        my $supplying_agency_id = $other->{supplying_agency_id} // '';
+        my $supplying_agency =
+            _core_supports_requesting() && $supplying_agency_id =~ /^\d+$/
+            ? Koha::ILL::ISO18626::SupplyingAgencies->find($supplying_agency_id)
+            : undef;
+        unless ($supplying_agency) {
             $result->{status} = 'invalid_agency';
             return $result;
         }
 
         $self->add_request( { request => $params->{request}, other => $other } );
 
-        # Store the selected agency credentials (illrequestattributes use the
-        # _agency_* prefix to avoid colliding with bib metadata).
-        # Also store the supplier-side biblio/item identifiers chosen by the user.
         $params->{request}->add_or_update_attributes( {
-            _agency_url                => $agency->{url},
-            _agency_account_id         => $agency->{account_id}    // '',
-            _agency_security_code      => $agency->{security_code} // '',
-            _agency_name               => $agency->{name}          // '',
-            supplier_biblio_id         => $other->{supplier_biblio_id}        // '',
-            supplier_item_barcode      => $other->{supplier_item_barcode}      // '',
-            supplier_item_callnumber   => $other->{supplier_item_callnumber}   // '',
-            supplier_item_library      => $other->{supplier_item_library}      // '',
-            supplier_item_public_notes => $other->{supplier_item_public_notes} // '',
+            iso18626_supplying_agency_id => $supplying_agency->id,
+            supplier_biblio_id           => $other->{supplier_biblio_id}         // '',
+            supplier_item_barcode        => $other->{supplier_item_barcode}      // '',
+            supplier_item_callnumber     => $other->{supplier_item_callnumber}   // '',
+            supplier_item_library        => $other->{supplier_item_library}      // '',
+            supplier_item_public_notes   => $other->{supplier_item_public_notes} // '',
         } );
 
 
@@ -882,12 +856,15 @@ sub send_to_patron {
 sub _document_hosts {
     my ( $self, $request ) = @_;
 
-    my $agency_url = $self->_get_agency_for_request($request)->{url} // '';
-    my $agency_uri = URI->new($agency_url);
-    my @hosts      = $agency_uri->can('host') ? ( lc $agency_uri->host ) : ();
+    return () unless _core_supports_requesting();
 
-    my ($agency) = grep { ( $_->{url} // '' ) eq $agency_url } @{ $self->{agencies} };
-    push @hosts, lc $agency->{document_host} if $agency && $agency->{document_host};
+    my $supplying_agency = Koha::ILL::ISO18626::Requester->supplying_agency($request);
+    return () unless $supplying_agency;
+
+    my $agency     = $self->_supplying_agency_with_settings($supplying_agency);
+    my $agency_uri = URI->new( $supplying_agency->endpoint );
+    my @hosts      = $agency_uri->can('host') ? ( lc $agency_uri->host ) : ();
+    push @hosts, lc $agency->{document_host} if $agency->{document_host};
 
     return grep { length } @hosts;
 }
@@ -932,79 +909,22 @@ sub ship_return {
     $self->_send_requesting_agency_message( $request, $action );
 
 Sends a requestingAgencyMessage with the given C<$action> (e.g. 'Cancel', 'Received',
-'StatusRequest') to the supplying agency endpoint configured in the plugin settings.
-Stores both the outgoing message and the incoming confirmation in the plugin messages table.
+'ShippedReturn') to the supplying agency the request was sent to, using
+I<Koha::ILL::ISO18626::Requester>.
 
 =cut
 
 sub _send_requesting_agency_message {
     my ( $self, $request, $action ) = @_;
 
-    my $agency   = $self->_get_agency_for_request($request);
-    my $endpoint = $agency->{url};
-    unless ($endpoint) {
-        warn 'ISO18626: Cannot send requestingAgencyMessage — no supplying agency endpoint configured.';
-        return 0;
-    }
+    my $result =
+        _core_supports_requesting()
+        ? Koha::ILL::ISO18626::Requester->send_requesting_agency_message(
+        { illrequest => $request, action => $action } )
+        : { success => 0, error => 'This Koha version cannot send ISO18626 messages' };
 
-    my $timestamp = strftime( '%Y-%m-%dT%H:%M:%SZ', gmtime );
-
-    my $dom  = XML::LibXML::Document->new( '1.0', 'UTF-8' );
-    my $root = add_node( $dom, $dom, 'requestingAgencyMessage' );
-
-    my $header = add_node( $dom, $root, 'header' );
-
-    my $sup_agency = add_node( $dom, $header, 'supplyingAgencyId' );
-    add_node( $dom, $sup_agency, 'agencyIdType',  'ISIL' );
-    add_node( $dom, $sup_agency, 'agencyIdValue', 'sup_agency_value' );    # TODO: make configurable
-
-    my $req_agency = add_node( $dom, $header, 'requestingAgencyId' );
-    add_node( $dom, $req_agency, 'agencyIdType',  'ISIL' );
-    add_node( $dom, $req_agency, 'agencyIdValue', 'req_agency_value' );    # TODO: make configurable
-
-    my %attrs        = map { $_->type => $_->value } $request->extended_attributes->as_list;
-    my $supplying_id = $attrs{supplying_agency_request_id} // $request->illrequest_id;
-
-    add_node( $dom, $header, 'requestingAgencyRequestId', $request->illrequest_id );
-    add_node( $dom, $header, 'supplyingAgencyRequestId',  $supplying_id );
-    add_node( $dom, $header, 'timestamp', $timestamp );
-
-    my $auth = add_node( $dom, $header, 'requestingAgencyAuthentication' );
-    add_node( $dom, $auth, 'accountId',    $agency->{account_id}    // '' );
-    add_node( $dom, $auth, 'securityCode', $agency->{security_code} // '' );
-
-    add_node( $dom, $root, 'action', $action );
-
-    my $spec_file = dirname( $INC{'Koha/REST/V1.pm'} ) . '/../../api/v1/swagger/swagger_bundle.json';
-    $spec_file    = dirname( $INC{'Koha/REST/V1.pm'} ) . '/../../api/v1/swagger/swagger.yaml'
-        unless -f $spec_file;
-
-    $self->_add_message(
-        $request->illrequest_id, 'requestingAgencyMessage',
-        encode_json( Koha::REST::V1::parse_xml( $dom->documentElement, $spec_file ) )
-    );
-
-    my $ua  = LWP::UserAgent->new;
-    my $req = HTTP::Request->new( POST => $endpoint );
-    $req->header( 'Content-Type' => 'application/xml' );
-    $req->content( $dom->toString(1) );
-
-    my $response = $ua->request($req);
-
-    if ( $response->is_success && $response->decoded_content ) {
-        my $doc = eval { XML::LibXML->new()->parse_string( $response->decoded_content ) };
-        if ($doc) {
-            $self->_add_message(
-                $request->illrequest_id, 'requestingAgencyMessageConfirmation',
-                encode_json( Koha::REST::V1::parse_xml( $doc->documentElement, $spec_file ) ),
-                'NOW() + INTERVAL 1 SECOND'
-            );
-        }
-    } else {
-        warn sprintf(
-            'ISO18626: Failed to send requestingAgencyMessage (%s) to %s. Status: %s',
-            $action, $endpoint, $response->status_line
-        );
+    unless ( $result->{success} ) {
+        warn sprintf( 'ISO18626: Failed to send requestingAgencyMessage (%s): %s', $action, $result->{error} );
         return 0;
     }
 
@@ -1271,76 +1191,65 @@ sub submit_and_request {
     return $self->create_request($submission);
 }
 
-sub add_node {
-    my ( $dom, $parent, $tag, $content, $attrs ) = @_;
-    
-    # Create the element
-    my $node = $dom->createElement($tag);
-    
-    # Add text if exists
-    $node->appendText($content) if defined $content;
-    
-    # Add attributes if exists
-    if ($attrs && ref $attrs eq 'HASH') {
-        foreach my $key (keys %$attrs) {
-            $node->setAttribute($key, $attrs->{$key});
-        }
-    }
-    
-    if (ref $parent eq 'XML::LibXML::Document') {
-        $parent->setDocumentElement($node);
-    } else {
-        $parent->appendChild($node);
-    }
-    
-    return $node; 
-}
+=head3 _request_body
 
-sub _get_attribute_map {
-    my ( $self, $dom, $bib, $pub ) = @_;
+    my $body = $self->_request_body($submission);
+
+Return the content of the ISO 18626 request message for C<$submission>, without its header.
+
+=cut
+
+sub _request_body {
+    my ( $self, $submission ) = @_;
+
+    my %attrs = map { lc( $_->type ) => $_->value } $submission->extended_attributes->as_list;
+
+    my $bibliographic_info = {};
+    my %bibliographic_fields = (
+        title              => 'title',
+        author             => 'author',
+        article_author     => 'authorOfComponent',
+        article_title      => 'titleOfComponent',
+        issue              => 'issue',
+        pages              => 'pagesRequested',
+        supplier_biblio_id => 'supplierUniqueRecordId',
+    );
+    for my $attr ( sort keys %bibliographic_fields ) {
+        $bibliographic_info->{ $bibliographic_fields{$attr} } = $attrs{$attr} if length( $attrs{$attr} // '' );
+    }
+
+    my %item_id_codes = ( doi => 'DOI', isbn => 'ISBN', issn => 'ISSN' );
+    for my $attr ( sort keys %item_id_codes ) {
+        next unless length( $attrs{$attr} // '' );
+        push @{ $bibliographic_info->{bibliographicItemId} },
+            { bibliographicItemIdentifierCode => $item_id_codes{$attr}, bibliographicItemIdentifier => $attrs{$attr} };
+    }
+
+    if ( length( $attrs{pmid} // '' ) ) {
+        push @{ $bibliographic_info->{bibliographicRecordId} },
+            { bibliographicRecordIdentifierCode => 'PMID', bibliographicRecordIdentifier => $attrs{pmid} };
+    }
+
+    my $publication_info = { publicationType => $self->_map_publication_type( $submission->get_type ) };
+    $publication_info->{publicationDate} = $attrs{published_date} if length( $attrs{published_date} // '' );
+    $publication_info->{publisher}       = $attrs{publisher}      if length( $attrs{publisher}      // '' );
+
+    my $service_type = $attrs{service_type} // '';
+    $service_type = 'Loan' unless $service_type =~ /^(?:Loan|Copy|CopyOrLoan)$/;
+    my $service_info = { serviceType => $service_type };
+
+    # ISO 18626 has no field for the supplier's item, so it goes in the note
+    my @note_parts;
+    push @note_parts, "Barcode: $attrs{supplier_item_barcode}"       if $attrs{supplier_item_barcode};
+    push @note_parts, "Callnumber: $attrs{supplier_item_callnumber}" if $attrs{supplier_item_callnumber};
+    push @note_parts, "Library: $attrs{supplier_item_library}"       if $attrs{supplier_item_library};
+    push @note_parts, "Notes: $attrs{supplier_item_public_notes}"    if $attrs{supplier_item_public_notes};
+    $service_info->{note} = join( '; ', @note_parts ) if @note_parts;
 
     return {
-        'title'  => { parent => $bib, tag => 'title' },
-        'author' => { parent => $bib, tag => 'author' },
-        'article_author' => { parent => $bib, tag => 'authorOfComponent' },
-        'article_title' => { parent => $bib, tag => 'titleOfComponent' },
-        'issue' => { parent => $bib, tag => 'issue' },
-        'pages' => { parent => $bib, tag => 'pagesRequested' },
-        'published_date' => { parent => $pub, tag => 'publicationDate' },
-        'publisher' => { parent => $pub, tag => 'publisher' },
-        'doi'    => {
-            builder => sub {
-                my $val = shift;
-                my $id  = add_node( $dom, $bib, 'bibliographicItemId' );
-                add_node( $dom, $id, 'bibliographicItemIdentifierCode', 'DOI' );
-                add_node( $dom, $id, 'bibliographicItemIdentifier',     $val );
-            }
-        },
-        'pmid' => {
-            builder => sub {
-                my $val = shift;
-                my $id  = add_node( $dom, $bib, 'bibliographicItemId' );
-                add_node( $dom, $id, 'bibliographicItemIdentifierCode', 'PMID' );
-                add_node( $dom, $id, 'bibliographicItemIdentifier',     $val );
-            }
-        },
-        'isbn' => {
-            builder => sub {
-                my $val = shift;
-                my $id  = add_node( $dom, $bib, 'bibliographicItemId' );
-                add_node( $dom, $id, 'bibliographicItemIdentifierCode', 'ISBN' );
-                add_node( $dom, $id, 'bibliographicItemIdentifier',     $val );
-            }
-        },
-        'issn' => {
-            builder => sub {
-                my $val = shift;
-                my $id  = add_node( $dom, $bib, 'bibliographicItemId' );
-                add_node( $dom, $id, 'bibliographicItemIdentifierCode', 'ISSN' );
-                add_node( $dom, $id, 'bibliographicItemIdentifier',     $val );
-            }
-        },
-        'supplier_biblio_id' => { parent => $bib, tag => 'supplierUniqueRecordId' },
+        bibliographicInfo => $bibliographic_info,
+        publicationInfo   => $publication_info,
+        serviceInfo       => $service_info,
     };
 }
 
@@ -1372,136 +1281,36 @@ sub _map_publication_type {
 
 =head3 create_request
 
-Take a previously created submission and send it to ISO18626 supplying agency
+Take a previously created submission and send it to its ISO18626 supplying agency
 
 =cut
 
 sub create_request {
     my ( $self, $submission ) = @_;
 
-    # 1. Setup Metadata
-    my $ns_uri    = 'http://example.com/ill/request';
-    my $timestamp = strftime( "%Y-%m-%d %H:%M:%S", localtime );
+    my $supplying_agency =
+        _core_supports_requesting() ? Koha::ILL::ISO18626::Requester->supplying_agency($submission) : undef;
 
-    my $dom  = XML::LibXML::Document->new('1.0', 'UTF-8');
-    my $root = add_node($dom, $dom, 'request', undef, { xmlns => 'http://example.com/ill/request' });
-
-    # 2. Setup Top-Level Containers
-    my $header  = add_node( $dom, $root, 'header' );
-    my $bib     = add_node( $dom, $root, 'bibliographicInfo' );
-    my $pub     = add_node( $dom, $root, 'publicationInfo' );
-    my $service = add_node( $dom, $root, 'serviceInfo' );
-
-    my $attribute_map = $self->_get_attribute_map( $dom, $bib, $pub );
-
-    my $attrs = $submission->illrequestattributes;
-
-    while ( my $attr = $attrs->next ) {
-        my $type  = lc( $attr->type );
-        my $value = $attr->value;
-
-        if ( exists $attribute_map->{$type} ) {
-            my $map = $attribute_map->{$type};
-
-            if ( $map->{builder} ) {
-                $map->{builder}->($value);
-            } else {
-                add_node( $dom, $map->{parent}, $map->{tag}, $value );
-            }
+    my $result =
+          !_core_supports_requesting() ? { success => 0, error => 'This Koha version cannot send ISO18626 requests' }
+        : !$supplying_agency           ? { success => 0, error => 'No supplying agency for this request' }
+        :                                Koha::ILL::ISO18626::Requester->send_request(
+        {
+            illrequest       => $submission,
+            supplying_agency => $supplying_agency,
+            request          => $self->_request_body($submission),
         }
-    }
+        );
 
-    # Add item copy identification to serviceInfo/note (ISO 18626 has no barcode field)
-    my %all_attrs = map { lc( $_->type ) => $_->value } $submission->illrequestattributes->as_list;
-    my @note_parts;
-    push @note_parts, "Barcode: $all_attrs{supplier_item_barcode}"             if $all_attrs{supplier_item_barcode};
-    push @note_parts, "Callnumber: $all_attrs{supplier_item_callnumber}"       if $all_attrs{supplier_item_callnumber};
-    push @note_parts, "Library: $all_attrs{supplier_item_library}"             if $all_attrs{supplier_item_library};
-    push @note_parts, "Notes: $all_attrs{supplier_item_public_notes}"          if $all_attrs{supplier_item_public_notes};
-    if (@note_parts) {
-        add_node( $dom, $service, 'note', join( '; ', @note_parts ) );
-    }
-
-    # 3. Fill in Static/Required Header details
-    add_node($dom, $header, 'requestingAgencyRequestId', $submission->illrequest_id);
-    add_node($dom, $header, 'timestamp', strftime("%Y-%m-%d %H:%M:%S", localtime));
-
-    my $req_agency_node = add_node($dom, $header, 'requestingAgencyId');
-    add_node($dom, $req_agency_node, 'agencyIdType',  'ISIL');
-    add_node($dom, $req_agency_node, 'agencyIdValue', 'req_agency_value');
-
-    # --- PUBLICATION INFO SECTION ---
-    # Assume $type comes from your attributes or $submission object
-    my $iso_type  = $self->_map_publication_type($submission->get_type);
-    add_node($dom, $pub, 'publicationType', $iso_type);
-
-    # --- SERVICE INFO SECTION ---
-    my $service_type = $all_attrs{service_type} // '';
-    $service_type = 'Loan' unless $service_type =~ /^(?:Loan|Copy|CopyOrLoan)$/;
-    add_node( $dom, $service, 'serviceType', $service_type );
-
-    # --- AUTHENTICATION SUB-SECTION ---
-    my $agency = $self->_get_agency_for_request($submission);
-    my $auth = add_node($dom, $header, 'requestingAgencyAuthentication');
-    add_node( $dom, $auth, 'accountId',    $agency->{account_id}    // '' );
-    add_node( $dom, $auth, 'securityCode', $agency->{security_code} // '' );
-
-    # 3. Prepare and send the request
-    my $endpoint = $agency->{url};
-    unless ($endpoint) {
-        my $error = 'ISO18626: No supplying agency endpoint configured.';
+    unless ( $result->{success} ) {
+        my $error = 'ISO18626: ' . $result->{error};
         warn $error;
         $submission->notesstaff($error)->status('ERROR')->store;
         return { success => 0, message => $error };
     }
 
-    my $spec_file = dirname( $INC{'Koha/REST/V1.pm'} ) . '/../../api/v1/swagger/swagger_bundle.json';
-    $spec_file    = dirname( $INC{'Koha/REST/V1.pm'} ) . '/../../api/v1/swagger/swagger.yaml'
-        unless -f $spec_file;
-
-    my $request_xml = $dom->toString(1);
-    $self->_add_message(
-        $submission->illrequest_id, 'request',
-        encode_json( Koha::REST::V1::parse_xml( $dom->documentElement, $spec_file ) )
-    );
-
-    my $ua  = LWP::UserAgent->new;
-    my $req = HTTP::Request->new( POST => $endpoint );
-    $req->header( 'Content-Type' => 'application/xml' );
-    $req->content($request_xml);
-
-    my $response = $ua->request($req);
-
-    if ( $response->is_success ) {
-        my $confirmation_xml = $response->decoded_content;
-        if ($confirmation_xml) {
-            my $doc = eval { XML::LibXML->new()->parse_string($confirmation_xml) };
-            if ($doc) {
-                $self->_add_message(
-                    $submission->illrequest_id, 'requestConfirmation',
-                    encode_json( Koha::REST::V1::parse_xml( $doc->documentElement, $spec_file ) )
-                );
-            } else {
-                $self->_add_message(
-                    $submission->illrequest_id, 'requestConfirmation',
-                    $confirmation_xml
-                );
-            }
-        }
-        $submission->status('RequestReceived')->store;
-        return { success => 1, message => '' };
-    }
-
-    my $error = sprintf(
-        'ISO18626: Failed to send request to %s. Status: %s. Body: %s',
-        $endpoint,
-        $response->status_line,
-        $response->decoded_content || 'No content'
-    );
-    warn $error;
-    $submission->notesstaff($error)->status('ERROR')->store;
-    return { success => 0, message => $error };
-
+    $submission->status('RequestReceived')->store;
+    return { success => 1, message => '' };
 }
 
 =head3 confirm
@@ -1595,10 +1404,49 @@ sub capabilities {
         opac_unauthenticated_ill_requests => sub { return 1; },
 
         # We can create ILL requests with data passed from the API
-        create_api => sub { $self->create_api(@_) }
+        create_api => sub { $self->create_api(@_) },
+
+        # We send ISO18626 requests to Koha's supplying agencies
+        iso18626_requesting => sub { return 1; },
+
+        # Koha passes on the supplyingAgencyMessages it receives for our requests
+        iso18626_supplying_agency_message => sub { $self->_handle_supplying_agency_message(@_) },
     };
 
     return $capabilities->{$name};
+}
+
+=head3 _handle_supplying_agency_message
+
+    $self->_handle_supplying_agency_message( { request => $request, message => $message } );
+
+Update C<$request> from a supplyingAgencyMessage Koha received from its supplying agency:
+set its status from C<statusInfo>, store the C<deliveryInfo> URL so the document can be
+retrieved, and set the order ID to the supplying agency's request ID.
+
+=cut
+
+sub _handle_supplying_agency_message {
+    my ( $self, $params ) = @_;
+
+    my $request = $params->{request};
+    my $message = $params->{message};
+
+    if ( my $delivery_url = $message->{deliveryInfo}->{URL} ) {
+        $request->add_or_update_attributes( { delivery_url => $delivery_url } );
+    }
+
+    if ( my $supplying_agency_request_id = $message->{header}->{supplyingAgencyRequestId} ) {
+        $request->orderid($supplying_agency_request_id);
+    }
+
+    if ( my $status = $message->{statusInfo}->{status} ) {
+        $request->status($status);
+    }
+
+    $request->store;
+
+    return 1;
 }
 
 =head3 _can_create_request
@@ -1965,24 +1813,6 @@ sub add_request {
     $request->after_created;
 
     return $request;
-}
-
-=head3 _add_message
-
-    $self->_add_message( $illrequest_id, $type, $content );
-
-Insert a row into the plugin messages table.
-
-=cut
-
-sub _add_message {
-    my ( $self, $illrequest_id, $type, $content, $timestamp ) = @_;
-    my $table = $self->get_qualified_table_name('messages');
-    my $ts    = $timestamp // 'NOW()';
-    C4::Context->dbh->do(
-        "INSERT INTO `$table` (illrequest_id, type, content, timestamp) VALUES (?, ?, ?, $ts)",
-        undef, $illrequest_id, $type, $content,
-    );
 }
 
 =head3 _logger

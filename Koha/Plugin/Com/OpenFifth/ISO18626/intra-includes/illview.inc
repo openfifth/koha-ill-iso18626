@@ -75,9 +75,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }).join('');
     }
 
-    // The plugin stores some messages without the outer type-key wrapper (e.g. just
-    // {header:{...}, messageInfo:{...}} instead of {supplyingAgencyMessage:{...}}).
-    // This normalises both formats to { typeKey, inner }.
+    // Splits a stored message ({supplyingAgencyMessage:{...}}) into { typeKey, inner }.
     var MESSAGE_TYPES = ['request', 'requestConfirmation', 'requestingAgencyMessage',
         'requestingAgencyMessageConfirmation', 'supplyingAgencyMessage', 'supplyingAgencyMessageConfirmation'];
     function parseContent(contentStr, msgType) {
@@ -117,8 +115,10 @@ document.addEventListener('DOMContentLoaded', function () {
     container.style.display = 'none';
     panel.appendChild(container);
 
-    fetch('/api/v1/contrib/iso18626/ill_requests/' + illrequest_id + '/messages', { headers: { Accept: 'application/json' } })
+    var query = encodeURIComponent(JSON.stringify({ 'me.ill_request_id': illrequest_id }));
+    fetch('/api/v1/ill/requests?q=' + query, { headers: { Accept: 'application/json', 'x-koha-embed': 'iso18626_messages' } })
         .then(r => r.ok ? r.json() : null)
+        .then(requests => requests?.[0]?.iso18626_messages)
         .then(function (messages) {
             if (!messages?.length) return;
 

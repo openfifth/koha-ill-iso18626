@@ -139,7 +139,7 @@
             [% SET enc_author   = result.author                | uri %]
             [% SET enc_isbn     = result.isbn                  | uri %]
             [% SET enc_issn     = result.issn                  | uri %]
-            [% SET enc_agidx    = result.agency_index          | uri %]
+            [% SET enc_agidx    = result.supplying_agency_id   | uri %]
             [% SET enc_supbib   = result.biblio_id             | uri %]
             [% SET base_url = "/cgi-bin/koha/ill/ill-requests.pl"
               _ "?method=create"
@@ -152,7 +152,7 @@
               _ "&amp;author="                _ enc_author
               _ "&amp;isbn="                  _ enc_isbn
               _ "&amp;issn="                  _ enc_issn
-              _ "&amp;agency_index="          _ enc_agidx
+              _ "&amp;supplying_agency_id="   _ enc_agidx
               _ "&amp;supplier_biblio_id="    _ enc_supbib
             %]
             [% IF result.api_items && result.api_items.size %]

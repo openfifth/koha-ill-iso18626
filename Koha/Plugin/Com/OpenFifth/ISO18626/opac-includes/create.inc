@@ -168,7 +168,7 @@
     <input type="hidden" name="author"             value="[% result.author | html %]"/>
     <input type="hidden" name="isbn"               value="[% result.isbn | html %]"/>
     <input type="hidden" name="issn"               value="[% result.issn | html %]"/>
-    <input type="hidden" name="agency_index"       value="[% result.agency_index | html %]"/>
+    <input type="hidden" name="supplying_agency_id" value="[% result.supplying_agency_id | html %]"/>
     <input type="hidden" name="supplier_biblio_id" value="[% result.biblio_id | html %]"/>
     [% IF item %]
       <input type="hidden" name="supplier_item_id"           value="[% item.item_id | html %]"/>
