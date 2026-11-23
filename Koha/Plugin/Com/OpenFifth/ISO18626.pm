@@ -681,18 +681,6 @@ sub create {
     }
 }
 
-=head3 illview
-
-   View and manage an ILL request
-
-=cut
-
-sub illview {
-    my ( $self, $params ) = @_;
-
-    return { method => "illview" };
-}
-
 =head3 cancel
 
     Send a Cancel requestingAgencyMessage to the supplier and set local status to CANCREQ.
@@ -1382,9 +1370,6 @@ capability is not implemented.
 sub capabilities {
     my ( $self, $name ) = @_;
     my $capabilities = {
-
-        # View and manage a request
-        illview => sub { illview(@_); },
 
         # Migrate
         migrate => sub { $self->migrate(@_); },

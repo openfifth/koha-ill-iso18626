@@ -10,4 +10,4 @@ From version 2.0.0:
 
 1) Supplying agencies are configured in Koha, under 'Interlibrary loans' > 'Supplying agencies'. The plugin configuration only holds the REST API credentials used to search each agency's catalogue and its document host.
 2) Requests and requestingAgencyMessages are sent by Koha. Supplying agencies must send their supplyingAgencyMessages to this Koha's `/api/v1/public/ill/iso18626` endpoint.
-3) ISO18626 messages are logged in Koha. The plugin's own messages table is dropped on upgrade.
+3) ISO18626 messages are logged and shown on the request by Koha. The plugin's own messages table is dropped on upgrade.
