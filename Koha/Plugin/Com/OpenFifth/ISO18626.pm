@@ -42,7 +42,7 @@ use Koha::Patrons;
 use LWP::UserAgent;
 use HTTP::Request::Common;
 
-our $VERSION = "2.0.1";
+our $VERSION = "2.0.2";
 
 our $metadata = {
     name            => 'ISO18626',
