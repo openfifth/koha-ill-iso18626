@@ -1487,42 +1487,6 @@ sub status_graph {
             next_actions   => [ 'WillSupply', 'ExpectToSupply', 'Loaned', 'CopyCompleted', 'RetryPossible', 'Unfilled', 'CANCREQ', 'Cancelled' ],
             ui_method_icon => 'fa-paper-plane',
         },
-        WillSupply => {
-            prev_actions   => ['RequestReceived'],
-            id             => 'WillSupply',
-            name           => 'Supplier will supply',
-            ui_method_name => 0,
-            method         => 0,
-            next_actions   => [ 'Loaned', 'CopyCompleted', 'RetryPossible', 'Unfilled', 'CANCREQ', 'Cancelled' ],
-            ui_method_icon => 0,
-        },
-        ExpectToSupply => {
-            prev_actions   => ['RequestReceived'],
-            id             => 'ExpectToSupply',
-            name           => 'Supplier expects to supply',
-            ui_method_name => 0,
-            method         => 0,
-            next_actions   => [ 'Loaned', 'CopyCompleted', 'RetryPossible', 'Unfilled', 'CANCREQ', 'Cancelled' ],
-            ui_method_icon => 0,
-        },
-        Loaned => {
-            prev_actions   => [ 'RequestReceived', 'WillSupply', 'ExpectToSupply' ],
-            id             => 'Loaned',
-            name           => 'In transit',
-            ui_method_name => 0,
-            method         => 0,
-            next_actions   => [ 'ItemReceived', 'LoanCompleted', 'CompletedWithoutReturn', 'CANCREQ', 'Cancelled' ],
-            ui_method_icon => 0,
-        },
-        RetryPossible => {
-            prev_actions   => [ 'RequestReceived', 'WillSupply', 'ExpectToSupply' ],
-            id             => 'RetryPossible',
-            name           => 'Retry possible',
-            ui_method_name => 0,
-            method         => 0,
-            next_actions   => [ 'CANCREQ', 'Cancelled' ],
-            ui_method_icon => 0,
-        },
 
         # Local-only status (not ISO18626): set when the requesting library
         # sends a Received action to notify the supplier the item has arrived.
@@ -1547,15 +1511,6 @@ sub status_graph {
             next_actions   => ['LoanCompleted'],
             ui_method_icon => 'fa-truck',
         },
-        CopyCompleted => {
-            prev_actions   => [ 'RequestReceived', 'WillSupply', 'ExpectToSupply', 'Loaned' ],
-            id             => 'CopyCompleted',
-            name           => 'Copy completed',
-            ui_method_name => 0,
-            method         => 0,
-            next_actions   => _supports_documents() ? ['DocumentReceived'] : [],
-            ui_method_icon => 0,
-        },
 
         # Local-only status (not ISO18626): set when the requesting library
         # retrieves the supplied document and sends a Received action to the supplier.
@@ -1579,42 +1534,6 @@ sub status_graph {
             method         => 'send_to_patron',
             next_actions   => [],
             ui_method_icon => 'fa-envelope',
-        },
-        LoanCompleted => {
-            prev_actions   => [ 'Loaned', 'ItemReceived', 'ShippedReturn' ],
-            id             => 'LoanCompleted',
-            name           => 'Loan completed',
-            ui_method_name => 0,
-            method         => 0,
-            next_actions   => [],
-            ui_method_icon => 0,
-        },
-        CompletedWithoutReturn => {
-            prev_actions   => [ 'Loaned', 'ItemReceived' ],
-            id             => 'CompletedWithoutReturn',
-            name           => 'Completed without return',
-            ui_method_name => 0,
-            method         => 0,
-            next_actions   => [],
-            ui_method_icon => 0,
-        },
-        Unfilled => {
-            prev_actions   => [ 'RequestReceived', 'WillSupply', 'ExpectToSupply' ],
-            id             => 'Unfilled',
-            name           => 'Unable to fulfil',
-            ui_method_name => 0,
-            method         => 0,
-            next_actions   => [],
-            ui_method_icon => 0,
-        },
-        Cancelled => {
-            prev_actions   => [ 'RequestReceived', 'WillSupply', 'ExpectToSupply', 'Loaned', 'ItemReceived', 'RetryPossible', 'CANCREQ' ],
-            id             => 'Cancelled',
-            name           => 'Cancelled',
-            ui_method_name => 0,
-            method         => 0,
-            next_actions   => [],
-            ui_method_icon => 0,
         },
 
         # Sends a Cancel requestingAgencyMessage to the supplier.
