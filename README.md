@@ -5,6 +5,7 @@ This backend plugin provides the ability to create Interlibrary Loan requests us
 # Important
 
 This plugin requires [Bug 37762](https://bugs.koha-community.org/bugzilla3/show_bug.cgi?id=37762) and, from version 2.0.0, [Bug 41091](https://bugs.koha-community.org/bugzilla3/show_bug.cgi?id=41091).
+From version 2.0.3, 'Retrieve document' needs the Bug 41091 version with `Koha::ILL::ISO18626::Requester->retrieve_document`.
 
 From version 2.0.0:
 

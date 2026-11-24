@@ -754,8 +754,8 @@ sub retrieve_document {
         value   => $params,
     };
 
-    return { %$error, message => 'This Koha version cannot store ILL documents.' }
-        unless _supports_documents();
+    return { %$error, message => 'This Koha version cannot retrieve ILL documents.' }
+        unless _core_supports_retrieving();
 
     my $delivery_url = $attrs{delivery_url};
     return { %$error, message => 'The supplier did not send a document URL.' } unless $delivery_url;
@@ -765,16 +765,11 @@ sub retrieve_document {
         unless ( $delivery_uri->scheme // '' ) =~ /^https?$/
         && grep { $_ eq lc $delivery_uri->host } $self->_document_hosts($request);
 
-    my $response = LWP::UserAgent->new( protocols_allowed => [ 'http', 'https' ], max_redirect => 0 )
-        ->get($delivery_url);
-    return { %$error, message => 'Could not download the document: ' . $response->status_line }
-        unless $response->is_success;
+    my $result = Koha::ILL::ISO18626::Requester->retrieve_document( { illrequest => $request, url => $delivery_url } );
+    return { %$error, message => $result->{error} } unless $result->{success};
 
-    my $file_name = $response->filename || 'document';
-    eval { $request->add_document( { file_name => $file_name, file_content => $response->content } ) };
-    return { %$error, message => 'Could not store the document: ' . $@ } if $@;
-
-    $self->_send_requesting_agency_message( $request, 'Received' );
+    warn sprintf( 'ISO18626: Failed to send requestingAgencyMessage (Received): %s', $result->{warning} )
+        if $result->{warning};
     $request->status('DocumentReceived')->store;
 
     return {
@@ -855,6 +850,17 @@ sub _document_hosts {
     push @hosts, lc $agency->{document_host} if $agency->{document_host};
 
     return grep { length } @hosts;
+}
+
+=head3 _core_supports_retrieving
+
+    Return whether this Koha version can retrieve the documents supplying agencies send
+    (Koha::ILL::ISO18626::Requester->retrieve_document).
+
+=cut
+
+sub _core_supports_retrieving {
+    return _core_supports_requesting() && Koha::ILL::ISO18626::Requester->can('retrieve_document') ? 1 : 0;
 }
 
 =head3 _supports_documents
